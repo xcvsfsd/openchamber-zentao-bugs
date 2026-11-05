@@ -15,7 +15,7 @@ body{margin:0;font:12px/1.5 system-ui,sans-serif}
 #t{font-size:10.5px;opacity:.65;white-space:nowrap}
 button{flex:1;padding:1px 4px;font-size:11.5px;border:1px solid var(--oc-border,var(--border,#8888));border-radius:6px;background:var(--oc-elevated,inherit);color:var(--oc-fg,inherit);cursor:pointer;white-space:nowrap}
 button.on{border-color:var(--primary,#3574f0);color:var(--primary,#3574f0);font-weight:700}
-</style><div class="m" id="m">禅道: …</div><div class="row"><button id="btn-r" title="手动刷新">↻ 刷新</button><button id="btn-a" title="定时刷新开关（60秒）">⏱ 关</button><span id="t" class="mut" title="最后刷新时间"></span></div>`;
+</style><div class="m" id="m">禅道: …</div><div class="row"><button id="btn-r" title="手动刷新">↻ 刷新</button><button id="btn-a" title="定时刷新开关（60秒）">⏱ 关</button></div>`;
 const m = document.querySelector('#m') as HTMLElement;
 const btnR = document.querySelector('#btn-r') as unknown as HTMLButtonElement;
 const btnA = document.querySelector('#btn-a') as unknown as HTMLButtonElement;
@@ -48,6 +48,14 @@ const paint = (total: number | null): void => {
   } else {
     m.append(t, n);
   }
+  if (lastTime) {
+    const ts = document.createElement('span');
+    ts.className = 'mut';
+    ts.style.cssText = 'font-size:11px;opacity:.65;font-weight:400';
+    ts.textContent = ` ${lastTime}`;
+    ts.title = '最后刷新时间';
+    m.appendChild(ts);
+  }
   void host.setBadge(total > 0 ? total : null).catch(() => undefined);
 };
 
@@ -70,9 +78,8 @@ const poll = async (): Promise<void> => {
       else m.textContent = '禅道: 不可用';
       return;
     }
-    paint(j.total);
     lastTime = stamp();
-    (document.querySelector('#t') as HTMLElement).textContent = lastTime;
+    paint(j.total);
     btnR.title = `手动刷新（上次 ${lastTime}）`;
     const h = Math.ceil(root.getBoundingClientRect().height);
     void host.setHeight(h).catch(() => undefined);
