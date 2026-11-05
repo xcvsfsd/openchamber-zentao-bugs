@@ -46,6 +46,8 @@ select option{background:var(--oc-elevated,#fff);color:var(--oc-fg,#111)}
 .detail img{max-width:100%;border-radius:8px;border:1px solid #8883;cursor:zoom-in}
 .mono{font-family:monospace;font-size:12.5px;word-break:break-all}
 #zoom{position:fixed;inset:0;background:rgba(0,0,0,.88);display:flex;align-items:center;justify-content:center;z-index:50;padding:12px;cursor:zoom-out}
+#zoom{overflow:hidden;touch-action:none}
+#zoom .zhint{position:absolute;bottom:14px;left:0;right:0;text-align:center;font-size:12.5px;opacity:.65;pointer-events:none}
 #zoom img{max-width:96%;max-height:96%;border-radius:8px}
 .detail img{cursor:zoom-in}
 .row{display:flex;gap:8px}
@@ -69,7 +71,7 @@ select option{background:var(--oc-elevated,#fff);color:var(--oc-fg,#111)}
   <div class="mut">配置只存本浏览器（localStorage），service 内存换 token，不落盘。</div>
 </div>
 <div id="msg" class="mut"></div>
-<div id="zoom" hidden><img id="zoom-img" alt="" /></div>
+<div id="zoom" hidden><img id="zoom-img" alt="" /><div class="zhint">滚轮缩放 · 拖拽平移 · 双击复位 · 单击关闭</div></div>
 <div id="list" style="display:flex;flex-direction:column;gap:10px"></div>
 `;
 
@@ -173,17 +175,79 @@ const buildMarkdown = (b: BugDetail): string => {
   return lines.join('\n');
 };
 
+let zoomScale = 1;
+let zoomTX = 0;
+let zoomTY = 0;
+let zoomDrag: { x: number; y: number; tx: number; ty: number } | null = null;
+let zoomMoved = false;
+const applyZoom = (): void => {
+  const zi = $('zoom-img') as unknown as HTMLImageElement;
+  zi.style.transform = `translate(${zoomTX}px, ${zoomTY}px) scale(${zoomScale})`;
+  zi.style.cursor = zoomScale > 1 ? 'grab' : 'zoom-in';
+};
 const openZoom = (srcUrl: string, name: string): void => {
   const z = $('zoom');
   const zi = $('zoom-img') as unknown as HTMLImageElement;
   zi.src = srcUrl;
   zi.alt = name;
+  zi.title = name;
+  zoomScale = 1;
+  zoomTX = 0;
+  zoomTY = 0;
+  applyZoom();
   z.hidden = false;
 };
-($('zoom') as unknown as HTMLElement).onclick = () => {
-  $('zoom').hidden = true;
-  ($('zoom-img') as unknown as HTMLImageElement).src = '';
-};
+{
+  const z = $('zoom') as unknown as HTMLElement;
+  const zi = $('zoom-img') as unknown as HTMLImageElement;
+  // 滚轮缩放 0.5x~8x
+  z.addEventListener('wheel', (ev: WheelEvent) => {
+    ev.preventDefault();
+    const f = ev.deltaY < 0 ? 1.15 : 1 / 1.15;
+    zoomScale = Math.min(8, Math.max(0.5, zoomScale * f));
+    if (zoomScale <= 1) {
+      zoomTX = 0;
+      zoomTY = 0;
+    }
+    applyZoom();
+  }, { passive: false });
+  // 放大后拖拽平移
+  z.addEventListener('pointerdown', (ev: PointerEvent) => {
+    if (zoomScale <= 1) return;
+    zoomDrag = { x: ev.clientX, y: ev.clientY, tx: zoomTX, ty: zoomTY };
+    zoomMoved = false;
+  });
+  z.addEventListener('pointermove', (ev: PointerEvent) => {
+    if (!zoomDrag) return;
+    const dx = ev.clientX - zoomDrag.x;
+    const dy = ev.clientY - zoomDrag.y;
+    if (Math.abs(dx) + Math.abs(dy) > 4) zoomMoved = true;
+    zoomTX = zoomDrag.tx + dx;
+    zoomTY = zoomDrag.ty + dy;
+    applyZoom();
+  });
+  const endDrag = (): void => {
+    zoomDrag = null;
+  };
+  z.addEventListener('pointerup', endDrag);
+  z.addEventListener('pointercancel', endDrag);
+  // 双击复位；单击关闭（拖拽不触发关闭）
+  z.addEventListener('dblclick', (ev: MouseEvent) => {
+    ev.preventDefault();
+    zoomScale = 1;
+    zoomTX = 0;
+    zoomTY = 0;
+    applyZoom();
+  });
+  z.addEventListener('click', () => {
+    if (zoomMoved) {
+      zoomMoved = false;
+      return;
+    }
+    z.hidden = true;
+    zi.src = '';
+  });
+}
 
 // 提取：详情（含图片）直接在卡片下方展开，再点收起
 const toggleDetail = async (card: HTMLElement, bug: BugItem, btn: HTMLButtonElement): Promise<void> => {
