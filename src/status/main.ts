@@ -137,6 +137,7 @@ btnA.onclick = (e) => {
   } catch { /* 忽略 */ }
 };
 
+let booted = false;
 host.onReady((ctx) => {
   applyHostReady(ctx, document.documentElement);
   void (async () => {
@@ -144,11 +145,16 @@ host.onReady((ctx) => {
       const v = await host.storage.get('ztb-autoref', { scope: 'device' });
       if (v === '1') setAuto(true);
     } catch { /* 默认关 */ }
-    // 切会话会重建帧：60 秒内不重复自动刷，手动按钮不受影响
+    // 静默保活：service 重启丢 token 就用存的配置重登，不刷界面
     try {
-      const at = Number((await host.storage.get('ztb-statusAt', { scope: 'device' })) ?? 0);
-      if (at > 0 && Date.now() - at < 60_000) return;
-    } catch { /* 照常刷 */ }
+      const c = (await host.storage.get('ztb-cfg', { scope: 'device' })) as { base?: string; account?: string; password?: string } | undefined;
+      if (c?.base && c?.account && c?.password) {
+        await host.serviceRequest({ method: 'POST', path: '/login', body: JSON.stringify({ baseUrl: c.base, account: c.account, password: c.password }) });
+      }
+    } catch { /* 忽略 */ }
+    // 自动刷只在首帧跑一次；切会话/模型重连等不再触发
+    if (booted) return;
+    booted = true;
     void poll();
   })();
 });

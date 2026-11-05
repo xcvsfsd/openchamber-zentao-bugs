@@ -760,14 +760,11 @@ btnLogin.onclick = async () => {
   btnLogin.disabled = false;
 };
 
+let booted = false;
 host.onReady((ctx) => {
   applyHostReady(ctx, document.documentElement);
-  // onReady 会因切会话/帧重建多次触发：5 分钟内不重复自动加载，手动刷新不受影响
+  // 自动加载只在首帧空白时跑一次；切会话/模型重连等只静默保活 token，绝不碰列表
   void (async () => {
-    try {
-      const at = Number((await storeGet('ztb-loadedAt')) ?? 0);
-      if (at > 0 && Date.now() - at < 5 * 60_000) return;
-    } catch { /* 照常加载 */ }
     try {
       const f = (await storeGet('ztb-fav')) as Record<string, number> | undefined;
       if (f && typeof f === 'object') favs = f;
@@ -776,18 +773,18 @@ host.onReady((ctx) => {
     cfgBase.value = c.base;
     cfgAcc.value = c.account;
     cfgPwd.value = c.password;
-    if (c.base && c.account && c.password) {
-      const ok = await doLogin(c);
-      if (ok) {
-        await storeSet('ztb-loadedAt', Date.now());
-        void refresh('open');
-      }
-      else {
-        cfgBox.hidden = false;
-        msgEl.innerHTML = '<div class="err">自动连接失败，检查配置后点“保存并连接”</div>';
-      }
-    } else {
+    if (!c.base || !c.account || !c.password) {
       cfgBox.hidden = false;
+      return;
     }
+    const ok = await doLogin(c);
+    if (!ok) {
+      cfgBox.hidden = false;
+      msgEl.innerHTML = '<div class="err">自动连接失败，检查配置后点“保存并连接”</div>';
+      return;
+    }
+    if (booted) return;
+    booted = true;
+    void refresh('open');
   })();
 });
