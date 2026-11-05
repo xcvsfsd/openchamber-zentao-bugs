@@ -12,6 +12,7 @@ root.innerHTML = `
 <style>
 :root{color-scheme:light dark}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 body{margin:0;font:15px/1.6 system-ui,sans-serif}
 #root{padding:10px;display:flex;flex-direction:column;gap:10px;min-height:100%;max-width:100%;overflow-x:hidden}
 .top{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
@@ -20,6 +21,7 @@ button{padding:8px 14px;font-size:14px;border:1px solid var(--oc-border,var(--bo
 button.primary{background:var(--primary,#3574f0);border-color:transparent;color:#fff}
 button:disabled{opacity:.5}
 button.small{padding:4px 10px;font-size:13px}
+a.small{padding:4px 10px;font-size:13px;border:1px solid var(--oc-border,var(--border,#8888));border-radius:8px;background:var(--oc-elevated,inherit);color:var(--oc-fg,inherit);cursor:pointer;white-space:nowrap;text-decoration:none;display:inline-block}
 .card{border:1px solid #8883;border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:6px}
 .card .title{font-weight:700;word-break:break-all}
 .card .meta{font-size:13px;opacity:.75}
@@ -245,11 +247,23 @@ const render = (items: BugItem[]): void => {
     bAssign.className = 'small';
     bAssign.textContent = '指派';
     bAssign.onclick = () => openAssign(card, b);
-    const bOpen = document.createElement('button');
+    const bOpen = document.createElement('a');
     bOpen.className = 'small';
     bOpen.textContent = '浏览器打开';
-    bOpen.onclick = () => void host.openUrl(`${baseUrl}/bug-view-${b.id}.html`).catch(() => undefined);
-    ops.append(bSend, bAssign, bOpen);
+    bOpen.title = '系统浏览器打开';
+    bOpen.href = `${baseUrl}/bug-view-${b.id}.html`;
+    bOpen.target = '_blank';
+    bOpen.rel = 'noopener noreferrer';
+    const bCopy = document.createElement('button');
+    bCopy.className = 'small';
+    bCopy.textContent = '复制链接';
+    bCopy.title = '复制 Bug 链接';
+    bCopy.onclick = () => {
+      void host.writeClipboard(`${baseUrl}/bug-view-${b.id}.html`).then(() => {
+        msgEl.textContent = '链接已复制';
+      }).catch(() => undefined);
+    };
+    ops.append(bSend, bAssign, bOpen, bCopy);
     card.append(title, meta, ops);
     listEl.appendChild(card);
   }
