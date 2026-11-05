@@ -271,11 +271,29 @@ const render = (items: BugItem[]): void => {
     bCopy.textContent = '复制链接';
     bCopy.title = '显示链接手动复制（沙箱内剪贴板可能被拦）';
     bCopy.onclick = () => {
-      // 沙箱 opaque origin 下剪贴板 API 可能被拦：给可选中输入框兜底
+      // 沙箱 iframe 经消息中转调宿主剪贴板时用户手势已丢失：先在同手势内同步 execCommand
       const url = `${baseUrl}/bug-view-${b.id}.html`;
+      let done = false;
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = url;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.top = '-1000px';
+        card.appendChild(ta);
+        ta.select();
+        ta.setSelectionRange(0, ta.value.length);
+        done = document.execCommand('copy');
+        ta.remove();
+      } catch { /* 走下面兜底 */ }
+      if (done) {
+        msgEl.innerHTML = '<span class="ok">链接已复制</span>';
+        return;
+      }
       void host.writeClipboard(url).then(() => {
-        msgEl.textContent = '链接已复制';
+        msgEl.innerHTML = '<span class="ok">链接已复制</span>';
       }).catch(() => undefined);
+      // 都不行：给可选中输入框，用户按 Ctrl+C（浏览器自身复制，不受沙箱限制）
       let inp = card.querySelector('.copylink') as HTMLInputElement | null;
       if (!inp) {
         inp = document.createElement('input');
@@ -287,7 +305,7 @@ const render = (items: BugItem[]): void => {
       inp.value = url;
       inp.focus();
       inp.select();
-      msgEl.textContent = '链接已选中，Ctrl+C 复制';
+      msgEl.textContent = '自动复制失败，链接已选中，按 Ctrl+C 复制';
     };
     ops.append(bSend, bAssign, bOpen, bCopy);
     card.append(title, meta, ops);
