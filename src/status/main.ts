@@ -101,6 +101,9 @@ const poll = async (): Promise<void> => {
     lastTime = stamp();
     paint(j.total);
     btnR.title = `手动刷新（上次 ${lastTime}）`;
+    try {
+      await host.storage.set('ztb-statusAt', Date.now(), { scope: 'device' });
+    } catch { /* 忽略 */ }
     const h = Math.ceil(root.getBoundingClientRect().height);
     void host.setHeight(h).catch(() => undefined);
   } catch {
@@ -141,6 +144,11 @@ host.onReady((ctx) => {
       const v = await host.storage.get('ztb-autoref', { scope: 'device' });
       if (v === '1') setAuto(true);
     } catch { /* 默认关 */ }
+    // 切会话会重建帧：60 秒内不重复自动刷，手动按钮不受影响
+    try {
+      const at = Number((await host.storage.get('ztb-statusAt', { scope: 'device' })) ?? 0);
+      if (at > 0 && Date.now() - at < 60_000) return;
+    } catch { /* 照常刷 */ }
+    void poll();
   })();
-  void poll();
 });
