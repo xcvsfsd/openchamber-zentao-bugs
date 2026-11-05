@@ -21,7 +21,6 @@ button{padding:8px 14px;font-size:14px;border:1px solid var(--oc-border,var(--bo
 button.primary{background:var(--primary,#3574f0);border-color:transparent;color:#fff}
 button:disabled{opacity:.5}
 button.small{padding:4px 10px;font-size:13px}
-a.small{padding:4px 10px;font-size:13px;border:1px solid var(--oc-border,var(--border,#8888));border-radius:8px;background:var(--oc-elevated,inherit);color:var(--oc-fg,inherit);cursor:pointer;white-space:nowrap;text-decoration:none;display:inline-block}
 .card{border:1px solid #8883;border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:6px}
 .card .title{font-weight:700;word-break:break-all}
 .card .meta{font-size:13px;opacity:.75}
@@ -262,21 +261,33 @@ const render = (items: BugItem[]): void => {
     bAssign.className = 'small';
     bAssign.textContent = '指派';
     bAssign.onclick = () => openAssign(card, b);
-    const bOpen = document.createElement('a');
+    const bOpen = document.createElement('button');
     bOpen.className = 'small';
     bOpen.textContent = '浏览器打开';
-    bOpen.title = '系统浏览器打开';
-    bOpen.href = `${baseUrl}/bug-view-${b.id}.html`;
-    bOpen.target = '_blank';
-    bOpen.rel = 'noopener noreferrer';
+    bOpen.title = '宿主打开链接（想走系统浏览器：设置里关掉“在内置浏览器中打开链接”，或 Ctrl+点击）';
+    bOpen.onclick = () => void host.openUrl(`${baseUrl}/bug-view-${b.id}.html`).catch(() => undefined);
     const bCopy = document.createElement('button');
     bCopy.className = 'small';
     bCopy.textContent = '复制链接';
-    bCopy.title = '复制 Bug 链接';
+    bCopy.title = '显示链接手动复制（沙箱内剪贴板可能被拦）';
     bCopy.onclick = () => {
-      void host.writeClipboard(`${baseUrl}/bug-view-${b.id}.html`).then(() => {
+      // 沙箱 opaque origin 下剪贴板 API 可能被拦：给可选中输入框兜底
+      const url = `${baseUrl}/bug-view-${b.id}.html`;
+      void host.writeClipboard(url).then(() => {
         msgEl.textContent = '链接已复制';
       }).catch(() => undefined);
+      let inp = card.querySelector('.copylink') as HTMLInputElement | null;
+      if (!inp) {
+        inp = document.createElement('input');
+        inp.type = 'text';
+        inp.readOnly = true;
+        inp.className = 'copylink';
+        card.appendChild(inp);
+      }
+      inp.value = url;
+      inp.focus();
+      inp.select();
+      msgEl.textContent = '链接已选中，Ctrl+C 复制';
     };
     ops.append(bSend, bAssign, bOpen, bCopy);
     card.append(title, meta, ops);
