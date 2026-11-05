@@ -20,7 +20,7 @@
       "statusSection": {
         "entry": "status/index.html",
         "title": "禅道",
-        "height": 76
+        "height": 112
       },
       "service": {
         "entry": "service/main.js",
