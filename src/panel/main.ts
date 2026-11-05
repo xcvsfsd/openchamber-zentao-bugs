@@ -38,6 +38,9 @@ select option{background:var(--oc-elevated,#fff);color:var(--oc-fg,#111)}
 .steps{white-space:pre-wrap;word-break:break-word;font-size:14px;background:#8881;border-radius:8px;padding:8px 10px;max-height:320px;overflow-y:auto}
 .detail img{max-width:100%;border-radius:8px;border:1px solid #8883;cursor:zoom-in}
 .mono{font-family:monospace;font-size:12.5px;word-break:break-all}
+#zoom{position:fixed;inset:0;background:rgba(0,0,0,.88);display:flex;align-items:center;justify-content:center;z-index:50;padding:12px;cursor:zoom-out}
+#zoom img{max-width:96%;max-height:96%;border-radius:8px}
+.detail img{cursor:zoom-in}
 .row{display:flex;gap:8px}
 .mut{font-size:13.5px;opacity:.7}
 .err{background:#7f1d1d22;border:1px solid #7f1d1d66;border-radius:8px;padding:10px;font-size:14px}
@@ -59,6 +62,7 @@ select option{background:var(--oc-elevated,#fff);color:var(--oc-fg,#111)}
   <div class="mut">配置只存本浏览器（localStorage），service 内存换 token，不落盘。</div>
 </div>
 <div id="msg" class="mut"></div>
+<div id="zoom" hidden><img id="zoom-img" alt="" /></div>
 <div id="list" style="display:flex;flex-direction:column;gap:10px"></div>
 `;
 
@@ -162,6 +166,18 @@ const buildMarkdown = (b: BugDetail): string => {
   return lines.join('\n');
 };
 
+const openZoom = (srcUrl: string, name: string): void => {
+  const z = $('zoom');
+  const zi = $('zoom-img') as unknown as HTMLImageElement;
+  zi.src = srcUrl;
+  zi.alt = name;
+  z.hidden = false;
+};
+($('zoom') as unknown as HTMLElement).onclick = () => {
+  $('zoom').hidden = true;
+  ($('zoom-img') as unknown as HTMLImageElement).src = '';
+};
+
 // 提取：详情（含图片）直接在卡片下方展开，再点收起
 const toggleDetail = async (card: HTMLElement, bug: BugItem, btn: HTMLButtonElement): Promise<void> => {
   const old = card.querySelector('.detail');
@@ -189,7 +205,8 @@ const toggleDetail = async (card: HTMLElement, bug: BugItem, btn: HTMLButtonElem
       const img = document.createElement('img');
       img.src = f.dataUrl ?? '';
       img.alt = f.name;
-      img.title = f.name;
+      img.title = `${f.name}（点击放大）`;
+      img.onclick = () => openZoom(f.dataUrl ?? '', f.name);
       box.appendChild(img);
     }
     const big = (b.files ?? []).filter((f) => f.tooLarge).map((f) => f.name);
@@ -329,6 +346,9 @@ const render = (items: BugItem[]): void => {
     const title = document.createElement('div');
     title.className = 'title';
     title.textContent = `#${b.id} ${b.title}`;
+    title.title = '点击提取详情';
+    title.style.cursor = 'pointer';
+    title.onclick = () => bGet.click();
     const meta = document.createElement('div');
     meta.className = 'meta';
     const pill = document.createElement('span');
