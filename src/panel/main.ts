@@ -339,7 +339,7 @@ const openAssign = (card: HTMLElement, bug: BugItem): void => {
   const box = document.createElement('div');
   box.className = 'assign';
   box.innerHTML = `
-    <input type="text" placeholder="拼音/姓名/账号过滤，如 lzs / 廖泽松" />
+    <input type="text" placeholder="拼音/姓名/账号过滤，如 zhangsan / 张三" />
     <select></select>
     <div class="chips"></div>
     <textarea placeholder="备注（从会话结果粘贴，如：已定位xx原因，请验证）"></textarea>
