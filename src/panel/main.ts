@@ -452,12 +452,13 @@ const openResolve = (card: HTMLElement, bug: BugItem): void => {
   box.innerHTML = `
     <div><label>解决方案</label><select class="r-resolution"></select></div>
     <div><label>解决版本</label><select class="r-build"></select></div>
-    <div><label>指派给</label><select class="r-assigned"></select></div>
+    <div><label>指派给</label><input type="text" class="r-filter" placeholder="拼音/姓名/账号过滤" /><select class="r-assigned"></select></div>
     <textarea class="r-comment" placeholder="备注（必填，如：已修复xx问题，请验证）"></textarea>
     <div><button class="small btn-ok r-do">保存解决</button> <button class="small r-cancel">取消</button> <span class="mut r-out"></span></div>`;
   const selRes = box.querySelector('.r-resolution') as HTMLSelectElement;
   const selBuild = box.querySelector('.r-build') as HTMLSelectElement;
   const selAssign = box.querySelector('.r-assigned') as HTMLSelectElement;
+  const filterAssign = box.querySelector('.r-filter') as HTMLInputElement;
   const comment = box.querySelector('.r-comment') as HTMLTextAreaElement;
   const out = box.querySelector('.r-out') as HTMLElement;
   card.appendChild(box);
@@ -492,13 +493,27 @@ const openResolve = (card: HTMLElement, bug: BugItem): void => {
         if (uj.ok) users = uj.users.map((x) => ({ ...x, ...pyOf(`${x.realname}${x.account}`) }));
       } catch { /* 忽略 */ }
     }
-    for (const u of users) {
-      const o = document.createElement('option');
-      o.value = u.account;
-      o.textContent = `${u.realname}（${u.account}）`;
-      selAssign.appendChild(o);
-    }
-    if (bug.openedBy && [...selAssign.options].some((o) => o.value === bug.openedBy)) selAssign.value = bug.openedBy;
+    const paintAssign = (keep?: string): void => {
+      const cur = keep ?? selAssign.value;
+      selAssign.innerHTML = '';
+      const list = users.filter((u) => matchUser(u, filterAssign.value)).slice(0, 100);
+      for (const u of list) {
+        const o = document.createElement('option');
+        o.value = u.account;
+        o.textContent = `${u.realname}（${u.account}）`;
+        selAssign.appendChild(o);
+      }
+      const want = cur || bug.openedBy;
+      if (want && [...selAssign.options].some((o) => o.value === want)) selAssign.value = want;
+      else if (selAssign.options.length === 0) {
+        const o = document.createElement('option');
+        o.value = '';
+        o.textContent = '无匹配';
+        selAssign.appendChild(o);
+      }
+    };
+    filterAssign.oninput = () => paintAssign();
+    paintAssign(bug.openedBy);
   })();
   (box.querySelector('.r-cancel') as HTMLButtonElement).onclick = () => box.remove();
   (box.querySelector('.r-do') as HTMLButtonElement).onclick = async (ev) => {
