@@ -25,7 +25,10 @@
       "service": {
         "entry": "service/main.js",
         "runtime": "host"
-      }
+      },
+      "capabilities": [
+        "prompt"
+      ]
     }
   },
   "scripts": {
