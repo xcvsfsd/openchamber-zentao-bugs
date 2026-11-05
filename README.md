@@ -13,7 +13,13 @@
 
 ## 安装
 
-OpenChamber → 设置 → 扩展 → 粘贴 Git 地址或本地文件夹添加：
+OpenChamber → 设置 → 扩展 → 粘贴 Git 地址添加：
+
+```text
+https://github.com/xcvsfsd/openchamber-zentao-bugs
+```
+
+本地开发可用文件夹路径安装（改完 `bun run build` 即生效）：
 
 ```text
 /home/liaoz/code/openchamber-zentao-bugs
