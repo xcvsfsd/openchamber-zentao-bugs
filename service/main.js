@@ -99,7 +99,10 @@ var loadAll = async () => {
           executionId: Number(b.execution ?? 0),
           openedBy: String(b.openedBy ?? ""),
           openedDate: String(b.openedDate ?? ""),
-          assignedDate: String(b.assignedDate ?? "")
+          assignedDate: String(b.assignedDate ?? ""),
+          openedBuild: String(b.openedBuild ?? ""),
+          resolvedBuild: String(b.resolvedBuild ?? ""),
+          statusName: String(b.statusName ?? "")
         });
       }
     }
@@ -177,9 +180,11 @@ var server = http.createServer((req, res) => {
       const { rows, error } = await loadAll();
       if (error)
         return json(res, 200, { ok: false, error, total: 0, items: [] });
+      const days = Number(url.searchParams.get("days") ?? "7");
+      const list = days > 0 ? rows.filter((r) => Date.parse(r.openedDate) >= Date.now() - days * 86400000) : rows;
       if (url.pathname === "/count")
-        return json(res, 200, { ok: true, total: rows.length });
-      return json(res, 200, { ok: true, total: rows.length, items: rows.slice(0, 10) });
+        return json(res, 200, { ok: true, total: list.length });
+      return json(res, 200, { ok: true, total: list.length, items: list.slice(0, 10) });
     })().catch(() => json(res, 500, { ok: false, error: "bugs-failed" }));
     return;
   }

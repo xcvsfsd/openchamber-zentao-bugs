@@ -35,8 +35,6 @@ const poll = async (): Promise<void> => {
   }
 };
 
-setInterval(() => void poll(), 30000);
-
 host.onReady((ctx) => {
   applyHostReady(ctx, document.documentElement);
   void poll();

@@ -82,6 +82,9 @@ type Row = {
   openedBy: string;
   openedDate: string;
   assignedDate: string;
+  openedBuild: string;
+  resolvedBuild: string;
+  statusName: string;
 };
 let listCache: { at: number; rows: Row[]; names: Map<number, string> } | null = null;
 
@@ -130,6 +133,9 @@ const loadAll = async (): Promise<{ rows: Row[]; error?: string }> => {
           openedBy: String(b.openedBy ?? ''),
           openedDate: String(b.openedDate ?? ''),
           assignedDate: String(b.assignedDate ?? ''),
+          openedBuild: String(b.openedBuild ?? ''),
+          resolvedBuild: String(b.resolvedBuild ?? ''),
+          statusName: String(b.statusName ?? ''),
         });
       }
     }
@@ -218,13 +224,15 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // ---- 读：我的前10（创建时间倒序） ----
+  // ---- 读：我的 Bug（创建时间倒序，默认近7天，days=0 查全部） ----
   if (req.method === 'GET' && (url.pathname === '/bugs' || url.pathname === '/count')) {
     (async () => {
       const { rows, error } = await loadAll();
       if (error) return json(res, 200, { ok: false, error, total: 0, items: [] });
-      if (url.pathname === '/count') return json(res, 200, { ok: true, total: rows.length });
-      return json(res, 200, { ok: true, total: rows.length, items: rows.slice(0, 10) });
+      const days = Number(url.searchParams.get('days') ?? '7');
+      const list = days > 0 ? rows.filter((r) => Date.parse(r.openedDate) >= Date.now() - days * 86400000) : rows;
+      if (url.pathname === '/count') return json(res, 200, { ok: true, total: list.length });
+      return json(res, 200, { ok: true, total: list.length, items: list.slice(0, 10) });
     })().catch(() => json(res, 500, { ok: false, error: 'bugs-failed' }));
     return;
   }

@@ -12,6 +12,9 @@ export type BugItem = {
   openedBy: string;
   openedDate: string;
   assignedDate: string;
+  openedBuild: string;
+  resolvedBuild: string;
+  statusName: string;
 };
 
 export type BugListAnswer = {

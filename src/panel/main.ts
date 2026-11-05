@@ -33,6 +33,7 @@ select option{background:var(--oc-elevated,#fff);color:var(--oc-fg,#111)}
 .assign{border-top:1px dashed #8884;padding-top:8px;display:flex;flex-direction:column;gap:8px}
 .chips{display:flex;gap:6px;flex-wrap:wrap}
 .chips button{font-size:12.5px;padding:4px 10px}
+.pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12.5px;font-weight:700;border:1px solid}
 .row{display:flex;gap:8px}
 .mut{font-size:13.5px;opacity:.7}
 .err{background:#7f1d1d22;border:1px solid #7f1d1d66;border-radius:8px;padding:10px;font-size:14px}
@@ -42,6 +43,7 @@ select option{background:var(--oc-elevated,#fff);color:var(--oc-fg,#111)}
   <span class="t">🐞 我的 Bug</span>
   <span id="total" class="mut"></span>
   <span style="flex:1"></span>
+  <button id="btn-range" class="small" title="切换：近一周 / 全部">近一周</button>
   <button id="btn-cfg" class="small" title="禅道连接设置">⚙</button>
   <button id="btn-refresh" class="small" title="刷新">↻</button>
 </div>
@@ -115,6 +117,12 @@ const matchUser = (u: (typeof users)[number], q: string): boolean => {
 };
 
 const sevText = (s: number): string => ({ 1: '致命', 2: '严重', 3: '一般', 4: '建议' })[s] ?? `S${s}`;
+const sevColor = (s: number): string => ({ 1: '#f87171', 2: '#fb923c', 3: '#fbbf24', 4: '#94a3b8' })[s] ?? '#9ca3b8';
+const statusColor = (name: string): string =>
+  name.includes('激活') ? '#60a5fa' : name.includes('解决') ? '#4ade80' : name.includes('关闭') ? '#9ca3b8' : name.includes('延期') ? '#fbbf24' : '#9ca3b8';
+const priColor = (p: number): string => (p <= 1 ? '#f87171' : p === 2 ? '#fb923c' : p >= 4 ? '#9ca3b8' : 'inherit');
+
+let days = 7;
 
 // 发会话：详情 Markdown（含步骤纯文本与内嵌图片）→ 直接发送
 const sendBug = async (id: number, btn: HTMLButtonElement): Promise<void> => {
@@ -250,7 +258,25 @@ const render = (items: BugItem[]): void => {
     title.textContent = `#${b.id} ${b.title}`;
     const meta = document.createElement('div');
     meta.className = 'meta';
-    meta.textContent = `${sevText(b.severity)} · P${b.pri} · ${b.productName || `产品${b.productId}`} · ${b.openedDate || ''}`;
+    const pill = document.createElement('span');
+    pill.className = 'pill';
+    const sColor = statusColor(b.statusName || b.status);
+    pill.style.color = sColor;
+    pill.style.borderColor = sColor;
+    pill.textContent = b.statusName || b.status || '未知';
+    const sev = document.createElement('span');
+    sev.style.color = sevColor(b.severity);
+    sev.style.fontWeight = '700';
+    sev.textContent = sevText(b.severity);
+    const pri = document.createElement('span');
+    pri.style.color = priColor(b.pri);
+    pri.style.fontWeight = b.pri <= 2 ? '700' : '400';
+    pri.textContent = `P${b.pri}`;
+    const rest = document.createElement('span');
+    const vers = [`影响 ${b.openedBuild || '-'}`];
+    if (b.resolvedBuild) vers.push(`解决 ${b.resolvedBuild}`);
+    rest.textContent = `${b.productName || `产品${b.productId}`} · ${vers.join(' · ')} · ${(b.openedDate || '').slice(0, 10)}`;
+    meta.append(pill, ' ', sev, ' · ', pri, ' · ', rest);
     const ops = document.createElement('div');
     ops.className = 'ops';
     const bSend = document.createElement('button');
@@ -319,7 +345,7 @@ const refresh = async (): Promise<void> => {
     const h = await call('GET', '/health');
     const hj = JSON.parse(h.body) as { ok: boolean; configured?: boolean; baseUrl?: string };
     if (hj.configured) baseUrl = hj.baseUrl ?? '';
-    const r = await call('GET', '/bugs');
+    const r = await call('GET', `/bugs?days=${days}`);
     const j = JSON.parse(r.body) as BugListAnswer;
     if (!j.ok) {
       msgEl.innerHTML =
@@ -328,7 +354,7 @@ const refresh = async (): Promise<void> => {
           : `<div class="err">${j.error ?? '加载失败'}</div>`;
       return;
     }
-    totalEl.textContent = `共 ${j.total} 条 · 取前 ${j.items.length} 条`;
+    totalEl.textContent = `${days > 0 ? '近一周 ' : ''}共 ${j.total} 条 · 取前 ${j.items.length} 条`;
     msgEl.textContent = '';
     render(j.items);
     void host.setBadge(j.total > 0 ? j.total : null).catch(() => undefined);
@@ -346,6 +372,11 @@ const refresh = async (): Promise<void> => {
 };
 
 btnRefresh.onclick = () => void refresh();
+($('btn-range') as unknown as HTMLButtonElement).onclick = (ev) => {
+  days = days > 0 ? 0 : 7;
+  (ev.target as HTMLButtonElement).textContent = days > 0 ? '近一周' : '全部';
+  void refresh();
+};
 
 // 设置：配置存本浏览器，打开自动建连
 const cfgBox = $('cfg');
