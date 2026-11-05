@@ -181,7 +181,8 @@ var server = http.createServer((req, res) => {
       if (error)
         return json(res, 200, { ok: false, error, total: 0, items: [] });
       const days = Number(url.searchParams.get("days") ?? "7");
-      const list = days > 0 ? rows.filter((r) => Date.parse(r.openedDate) >= Date.now() - days * 86400000) : rows;
+      const actionable = rows.filter((r) => !/解决|关闭|resolved|closed/i.test(`${r.statusName} ${r.status}`));
+      const list = days > 0 ? actionable.filter((r) => Date.parse(r.openedDate) >= Date.now() - days * 86400000) : actionable;
       if (url.pathname === "/count")
         return json(res, 200, { ok: true, total: list.length });
       return json(res, 200, { ok: true, total: list.length, items: list.slice(0, 10) });
@@ -228,6 +229,38 @@ var server = http.createServer((req, res) => {
           entry.tooLarge = true;
         }
         files.push(entry);
+      }
+      const rawSteps = String(b.steps ?? "");
+      const seen = new Set(files.map((f) => f.id));
+      const tkInline = cached?.token ?? await getToken();
+      const reInline = /file-read-(\d+)\.([A-Za-z]{2,4})/g;
+      let mInline;
+      let inlineCount = 0;
+      while ((mInline = reInline.exec(rawSteps)) !== null && inlineCount < 3) {
+        const fid = Number(mInline[1]);
+        const fext = (mInline[2] ?? "png").toLowerCase();
+        if (!fid || seen.has(fid))
+          continue;
+        seen.add(fid);
+        try {
+          const dl = await fetch(`${CFG.base}/file-read-${fid}.${fext}`, {
+            headers: tkInline ? { Token: tkInline } : {},
+            signal: AbortSignal.timeout(20000)
+          });
+          const ct = dl.headers.get("content-type") ?? "";
+          const buf = Buffer.from(await dl.arrayBuffer());
+          if (buf.length > 0 && buf.length <= 300 * 1024 && ct.startsWith("image/")) {
+            files.push({
+              id: fid,
+              name: `步骤截图${fid}.${fext}`,
+              ext: fext,
+              size: buf.length,
+              isImage: true,
+              dataUrl: `data:${ct.split(";")[0]};base64,${buf.toString("base64")}`
+            });
+            inlineCount += 1;
+          }
+        } catch {}
       }
       const pid = Number(b.product ?? 0);
       const pname = listCache?.names.get(pid) ?? "";
