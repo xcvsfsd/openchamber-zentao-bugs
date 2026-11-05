@@ -2,6 +2,8 @@
 
 禅道指派 Bug 面板，给 OpenChamber 用的扩展。仿 `openchamber-git-commit` 结构（panel + status + service），中文界面。
 
+![面板示意](screenshot.png)
+
 ## 功能
 
 - 我的 Bug：指派给我的全部 Bug 按创建时间倒序，面板展示前 10 条；状态栏显示总数 `🐞N`，图标 badge 同步
