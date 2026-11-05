@@ -2,7 +2,7 @@
 import { connectHost, HostRequestError } from '@openchamber/sdk';
 import { applyHostReady } from '@openchamber/sdk/ui';
 import { pinyin } from 'pinyin-pro';
-import type { AssignAnswer, BugDetailAnswer, BugItem, BugListAnswer, CountAnswer, UserEntry, UsersAnswer } from '../shared/types.ts';
+import type { AssignAnswer, BugDetail, BugDetailAnswer, BugItem, BugListAnswer, CountAnswer, UserEntry, UsersAnswer } from '../shared/types.ts';
 
 const host = connectHost();
 const root = document.querySelector<HTMLElement>('#root');
@@ -34,6 +34,10 @@ select option{background:var(--oc-elevated,#fff);color:var(--oc-fg,#111)}
 .chips{display:flex;gap:6px;flex-wrap:wrap}
 .chips button{font-size:12.5px;padding:4px 10px}
 .pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12.5px;font-weight:700;border:1px solid}
+.detail{border-top:1px dashed #8884;padding-top:8px;display:flex;flex-direction:column;gap:8px}
+.steps{white-space:pre-wrap;word-break:break-word;font-size:14px;background:#8881;border-radius:8px;padding:8px 10px;max-height:320px;overflow-y:auto}
+.detail img{max-width:100%;border-radius:8px;border:1px solid #8883;cursor:zoom-in}
+.mono{font-family:monospace;font-size:12.5px;word-break:break-all}
 .row{display:flex;gap:8px}
 .mut{font-size:13.5px;opacity:.7}
 .err{background:#7f1d1d22;border:1px solid #7f1d1d66;border-radius:8px;padding:10px;font-size:14px}
@@ -124,34 +128,99 @@ const priColor = (p: number): string => (p <= 1 ? '#f87171' : p === 2 ? '#fb923c
 
 let days = 7;
 
-// 发会话：详情 Markdown（含步骤纯文本与内嵌图片）→ 直接发送
-const sendBug = async (id: number, btn: HTMLButtonElement): Promise<void> => {
+// 详情缓存：提取一次，展开/发会话复用
+const detailCache = new Map<number, BugDetail>();
+const fetchBug = async (id: number): Promise<BugDetail | null> => {
+  const hit = detailCache.get(id);
+  if (hit) return hit;
+  const r = await call('GET', `/bug?id=${id}`);
+  const j = JSON.parse(r.body) as BugDetailAnswer;
+  if (!j.ok || !j.bug) {
+    msgEl.textContent = j.error ?? '提取失败';
+    return null;
+  }
+  detailCache.set(id, j.bug);
+  return j.bug;
+};
+
+const buildMarkdown = (b: BugDetail): string => {
+  const lines = [
+    `【禅道Bug #${b.id}】${b.title}`,
+    `状态 ${b.status}｜严重 ${sevText(b.severity)}｜优先级 P${b.pri}｜类型 ${b.type || '-'}`,
+    `产品 ${b.productName || '-'}｜项目 ${b.projectName || '-'}｜由 ${b.openedBy} 创建于 ${b.openedDate}｜当前指派 ${b.assignedTo}`,
+    '',
+    '重现步骤：',
+    b.stepsPlain || '（无）',
+  ];
+  const imgs = (b.files ?? []).filter((f) => f.isImage && f.dataUrl).slice(0, 3);
+  for (const f of imgs) lines.push('', `![${f.name}](${f.dataUrl ?? ''})`);
+  const big = (b.files ?? []).filter((f) => f.tooLarge).map((f) => f.name);
+  if (big.length > 0) lines.push('', `大图未内嵌（>300KB）：${big.join('、')}`);
+  const nonImg = (b.files ?? []).filter((f) => !f.isImage).map((f) => f.name);
+  if (nonImg.length > 0) lines.push('', `附件：${nonImg.join('、')}`);
+  lines.push('', b.bugUrl);
+  return lines.join('\n');
+};
+
+// 提取：详情（含图片）直接在卡片下方展开，再点收起
+const toggleDetail = async (card: HTMLElement, bug: BugItem, btn: HTMLButtonElement): Promise<void> => {
+  const old = card.querySelector('.detail');
+  if (old) {
+    old.remove();
+    btn.textContent = '提取';
+    return;
+  }
   btn.disabled = true;
-  msgEl.textContent = `#${id} 提取中…`;
+  msgEl.textContent = `#${bug.id} 提取中…`;
   try {
-    const r = await call('GET', `/bug?id=${id}`);
-    const j = JSON.parse(r.body) as BugDetailAnswer;
-    if (!j.ok || !j.bug) {
-      msgEl.textContent = j.error ?? '提取失败';
-      return;
+    const b = await fetchBug(bug.id);
+    if (!b) return;
+    msgEl.textContent = '';
+    const box = document.createElement('div');
+    box.className = 'detail';
+    const head = document.createElement('div');
+    head.className = 'mut';
+    head.textContent = `状态 ${b.status}｜${sevText(b.severity)}·P${b.pri}｜${b.productName || ''}｜${b.openedBy} ${b.openedDate}｜指派 ${b.assignedTo}`;
+    const steps = document.createElement('div');
+    steps.className = 'steps';
+    steps.textContent = b.stepsPlain || '（无重现步骤）';
+    box.append(head, steps);
+    for (const f of (b.files ?? []).filter((x) => x.isImage && x.dataUrl).slice(0, 3)) {
+      const img = document.createElement('img');
+      img.src = f.dataUrl ?? '';
+      img.alt = f.name;
+      img.title = f.name;
+      box.appendChild(img);
     }
-    const b = j.bug;
-    const lines = [
-      `【禅道Bug #${b.id}】${b.title}`,
-      `状态 ${b.status}｜严重 ${sevText(b.severity)}｜优先级 P${b.pri}｜类型 ${b.type || '-'}`,
-      `产品 ${b.productName || '-'}｜项目 ${b.projectName || '-'}｜由 ${b.openedBy} 创建于 ${b.openedDate}｜当前指派 ${b.assignedTo}`,
-      '',
-      '重现步骤：',
-      b.stepsPlain || '（无）',
-    ];
-    const imgs = (b.files ?? []).filter((f) => f.isImage && f.dataUrl).slice(0, 3);
-    for (const f of imgs) lines.push('', `![${f.name}](${f.dataUrl ?? ''})`);
     const big = (b.files ?? []).filter((f) => f.tooLarge).map((f) => f.name);
-    if (big.length > 0) lines.push('', `大图未内嵌（>300KB），浏览器查看：${big.join('、')}`);
     const nonImg = (b.files ?? []).filter((f) => !f.isImage).map((f) => f.name);
-    if (nonImg.length > 0) lines.push('', `附件：${nonImg.join('、')}`);
-    lines.push('', b.bugUrl);
-    await host.prompt({ text: lines.join('\n'), send: true });
+    if (big.length > 0 || nonImg.length > 0) {
+      const att = document.createElement('div');
+      att.className = 'mut';
+      att.textContent = [big.length > 0 ? `大图>300KB未展示：${big.join('、')}` : '', nonImg.length > 0 ? `附件：${nonImg.join('、')}` : ''].filter(Boolean).join('；');
+      box.appendChild(att);
+    }
+    const url = document.createElement('div');
+    url.className = 'mut mono';
+    url.textContent = b.bugUrl;
+    box.appendChild(url);
+    card.appendChild(box);
+    btn.textContent = '收起';
+  } catch {
+    msgEl.textContent = '提取失败';
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+// 发会话：用已提取的详情拼 Markdown 直接发送
+const sendSession = async (id: number, btn: HTMLButtonElement): Promise<void> => {
+  btn.disabled = true;
+  msgEl.textContent = `#${id} 准备中…`;
+  try {
+    const b = await fetchBug(id);
+    if (!b) return;
+    await host.prompt({ text: buildMarkdown(b), send: true });
     msgEl.innerHTML = `<span class="ok">#${id} 已发送到当前会话</span>`;
   } catch (e) {
     msgEl.textContent = e instanceof HostRequestError ? `${e.code}` : '发送失败';
@@ -283,19 +352,20 @@ const render = (items: BugItem[]): void => {
     meta.append(pill, ' ', sev, ' · ', pri, ' · ', rest);
     const ops = document.createElement('div');
     ops.className = 'ops';
+    const bGet = document.createElement('button');
+    bGet.className = 'primary small';
+    bGet.textContent = '提取';
+    bGet.title = '拉取详情并在下方展开（含图片）';
+    bGet.onclick = () => void toggleDetail(card, b, bGet);
     const bSend = document.createElement('button');
     bSend.className = 'primary small';
-    bSend.textContent = '提取发会话';
-    bSend.onclick = () => void sendBug(b.id, bSend);
+    bSend.textContent = '发会话';
+    bSend.title = '把详情发到当前会话';
+    bSend.onclick = () => void sendSession(b.id, bSend);
     const bAssign = document.createElement('button');
     bAssign.className = 'small';
     bAssign.textContent = '指派';
     bAssign.onclick = () => openAssign(card, b);
-    const bOpen = document.createElement('button');
-    bOpen.className = 'small';
-    bOpen.textContent = '浏览器打开';
-    bOpen.title = '宿主打开链接（想走系统浏览器：设置里关掉“在内置浏览器中打开链接”，或 Ctrl+点击）';
-    bOpen.onclick = () => void host.openUrl(`${baseUrl}/bug-view-${b.id}.html`).catch(() => undefined);
     const bCopy = document.createElement('button');
     bCopy.className = 'small';
     bCopy.textContent = '复制链接';
@@ -337,7 +407,7 @@ const render = (items: BugItem[]): void => {
       inp.select();
       msgEl.textContent = '自动复制失败，链接已选中，按 Ctrl+C 复制';
     };
-    ops.append(bSend, bAssign, bOpen, bCopy);
+    ops.append(bGet, bSend, bAssign, bCopy);
     card.append(title, meta, ops);
     listEl.appendChild(card);
   }
