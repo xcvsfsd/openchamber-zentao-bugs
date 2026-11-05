@@ -120,6 +120,8 @@ const loadAll = async (): Promise<{ rows: Row[]; error?: string }> => {
     for (const bugs of batch) {
       for (const b of bugs) {
         const pid = Number(b.product ?? 0);
+        const obRaw = b.openedBy as { account?: unknown } | string | undefined;
+        const obAcc = typeof obRaw === 'string' ? obRaw : String(obRaw?.account ?? '');
         rows.push({
           id: Number(b.id ?? 0),
           title: String(b.title ?? ''),
@@ -130,7 +132,7 @@ const loadAll = async (): Promise<{ rows: Row[]; error?: string }> => {
           productName: names.get(pid) ?? '',
           projectId: Number(b.project ?? 0),
           executionId: Number(b.execution ?? 0),
-          openedBy: String(b.openedBy ?? ''),
+          openedBy: obAcc,
           openedDate: String(b.openedDate ?? ''),
           assignedDate: String(b.assignedDate ?? ''),
           openedBuild: String(b.openedBuild ?? ''),

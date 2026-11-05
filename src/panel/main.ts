@@ -259,7 +259,7 @@ const closeCardPanels = (card: HTMLElement): void => {
   card.querySelector('.copylink')?.remove();
   card.querySelector('.resolvebox')?.remove();
   card.querySelectorAll('button').forEach((x) => {
-    if (x.textContent === '收起') x.textContent = '提取';
+    if (x.textContent === '收起') x.textContent = '详情';
   });
 };
 
@@ -268,13 +268,13 @@ const toggleDetail = async (card: HTMLElement, bug: BugItem, btn: HTMLButtonElem
   const old = card.querySelector('.detail');
   if (old) {
     old.remove();
-    btn.textContent = '提取';
+    btn.textContent = '详情';
     return;
   }
   closeCardPanels(card);
-  btn.textContent = '提取';
+  btn.textContent = '详情';
   btn.disabled = true;
-  msgEl.textContent = `#${bug.id} 提取中…`;
+  msgEl.textContent = `#${bug.id} 详情加载中…`;
   try {
     const b = await fetchBug(bug.id);
     if (!b) return;
@@ -311,7 +311,7 @@ const toggleDetail = async (card: HTMLElement, bug: BugItem, btn: HTMLButtonElem
     card.appendChild(box);
     btn.textContent = '收起';
   } catch {
-    msgEl.textContent = '提取失败';
+    msgEl.textContent = '详情加载失败';
   } finally {
     btn.disabled = false;
   }
@@ -436,7 +436,7 @@ const loadBuilds = async (executionId: number): Promise<{ id: number; name: stri
   try {
     const r = await call('GET', `/builds?execution=${executionId}`);
     const j = JSON.parse(r.body) as BuildsAnswer;
-    if (j.ok) {
+    if (j.ok && Array.isArray(j.builds)) {
       buildsCache.set(executionId, j.builds);
       return j.builds;
     }
@@ -583,7 +583,7 @@ const render = (items: BugItem[]): void => {
     ops.className = 'ops';
     const bGet = document.createElement('button');
     bGet.className = 'small btn-get';
-    bGet.textContent = '提取';
+    bGet.textContent = '详情';
     bGet.title = '拉取详情并在下方展开（含图片）';
     bGet.onclick = () => void toggleDetail(card, b, bGet);
     const bSend = document.createElement('button');
