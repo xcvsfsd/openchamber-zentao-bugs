@@ -15,6 +15,9 @@ root.innerHTML = `
 [hidden]{display:none!important}
 body{margin:0;font:15px/1.6 system-ui,sans-serif}
 #root{padding:10px;display:flex;flex-direction:column;gap:10px;min-height:100%;max-width:100%;overflow-x:hidden}
+#msg{position:fixed;left:10px;right:10px;bottom:10px;z-index:40;background:color-mix(in srgb,var(--oc-elevated,#222) 94%,transparent);border:1px solid var(--oc-border,var(--border,#8888));border-radius:10px;padding:8px 12px;font-size:13.5px;box-shadow:0 6px 24px #0008;max-height:30%;overflow-y:auto}
+#msg:empty{display:none}
+#root{padding-bottom:4px}
 .top{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .top .t{font-weight:700}
 button{padding:8px 14px;font-size:14px;border:1px solid var(--oc-border,var(--border,#8888));border-radius:8px;background:var(--oc-elevated,inherit);color:var(--oc-fg,inherit);cursor:pointer;white-space:nowrap}
@@ -470,6 +473,14 @@ const refresh = async (): Promise<void> => {
 };
 
 btnRefresh.onclick = () => void refresh();
+
+// 提示条悬浮底部不占流：普通提示 3 秒自动消失，错误块常驻
+let msgTimer: ReturnType<typeof setTimeout> | null = null;
+new MutationObserver(() => {
+  if (msgTimer) { clearTimeout(msgTimer); msgTimer = null; }
+  if (!msgEl.textContent?.trim() || msgEl.querySelector('.err')) return;
+  msgTimer = setTimeout(() => { msgEl.textContent = ''; msgEl.innerHTML = ''; msgTimer = null; }, 3000);
+}).observe(msgEl, { childList: true, characterData: true, subtree: true });
 ($('btn-range') as unknown as HTMLButtonElement).onclick = (ev) => {
   days = days > 0 ? 0 : 7;
   (ev.target as HTMLButtonElement).textContent = days > 0 ? '近一周' : '全部';
