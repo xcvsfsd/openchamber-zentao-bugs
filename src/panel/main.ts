@@ -406,7 +406,7 @@ const openAssign = (card: HTMLElement, bug: BugItem): void => {
       favs[sel.value] = (favs[sel.value] ?? 0) + 1;
       saveFavs();
       out.innerHTML = `<span class="ok">已指派给 ${sel.value}</span>`;
-      setTimeout(() => void refresh(), 800);
+      setTimeout(() => void refresh('action'), 800);
     } catch {
       out.textContent = '指派失败';
     } finally {
@@ -544,7 +544,7 @@ const openResolve = (card: HTMLElement, bug: BugItem): void => {
       }
       detailCache.delete(bug.id);
       out.innerHTML = '<span class="ok">已解决</span>';
-      setTimeout(() => void refresh(), 800);
+      setTimeout(() => void refresh('action'), 800);
     } catch {
       out.textContent = '解决失败';
     } finally {
@@ -663,8 +663,8 @@ const render = (items: BugItem[]): void => {
   }
 };
 
-const refresh = async (): Promise<void> => {
-  msgEl.textContent = '加载中…';
+const refresh = async (src: 'manual' | 'open' | 'action' = 'manual'): Promise<void> => {
+  msgEl.textContent = src === 'open' ? '初次加载中…' : src === 'action' ? '已更新，刷新中…' : '加载中…';
   try {
     const h = await call('GET', '/health');
     const hj = JSON.parse(h.body) as { ok: boolean; configured?: boolean; baseUrl?: string };
@@ -695,7 +695,7 @@ const refresh = async (): Promise<void> => {
   }
 };
 
-btnRefresh.onclick = () => void refresh();
+btnRefresh.onclick = () => void refresh('manual');
 
 // 提示条悬浮底部不占流：普通提示 3 秒自动消失，错误块常驻
 let msgTimer: ReturnType<typeof setTimeout> | null = null;
@@ -707,7 +707,7 @@ new MutationObserver(() => {
 ($('btn-range') as unknown as HTMLButtonElement).onclick = (ev) => {
   days = days > 0 ? 0 : 7;
   (ev.target as HTMLButtonElement).textContent = days > 0 ? '近一周' : '全部';
-  void refresh();
+  void refresh('manual');
 };
 
 // 设置：配置存本浏览器，打开自动建连
@@ -777,7 +777,7 @@ host.onReady((ctx) => {
     cfgPwd.value = c.password;
     if (c.base && c.account && c.password) {
       const ok = await doLogin(c);
-      if (ok) void refresh();
+      if (ok) void refresh('open');
       else {
         cfgBox.hidden = false;
         msgEl.innerHTML = '<div class="err">自动连接失败，检查配置后点“保存并连接”</div>';
