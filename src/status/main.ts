@@ -9,7 +9,9 @@ if (!root) throw new Error('Missing #root');
 root.innerHTML = `<style>
 body{margin:0;font:12px/1.5 system-ui,sans-serif}
 #root{padding:2px 4px;cursor:pointer;display:flex;flex-direction:column;gap:2px}
-.m{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.m{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.m .l{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.m .r{flex:none;font-size:11px;opacity:.65;font-weight:400}
 .m b{font-size:13px}
 .row{display:flex;gap:4px;align-items:center}
 #t{font-size:10.5px;opacity:.65;white-space:nowrap}
@@ -29,17 +31,21 @@ let auto = false;
 let timer: ReturnType<typeof setInterval> | null = null;
 
 const paint = (total: number | null): void => {
-  m.style.cssText = total !== null && total > 0
-    ? 'background:#7f1d1d55;border:1px solid #f8717166;border-radius:8px;padding:0 6px;'
-    : '';
   if (total === null) {
+    m.style.cssText = '';
     m.textContent = '禅道: 待登录（面板⚙连接）';
+    void host.setBadge(null).catch(() => undefined);
     return;
   }
+  m.style.cssText = total > 0
+    ? 'background:#7f1d1d55;border:1px solid #f8717166;border-radius:8px;padding:0 6px;'
+    : '';
   m.innerHTML = '';
+  const left = document.createElement('span');
+  left.className = 'l';
   const t = document.createElement('span');
   t.textContent = '禅道: 🐞 ';
-  m.appendChild(t);
+  left.appendChild(t);
   const n = document.createElement('b');
   n.textContent = String(total);
   if (total > 0) {
@@ -47,15 +53,15 @@ const paint = (total: number | null): void => {
     const pill = document.createElement('span');
     pill.textContent = ' 待办';
     pill.style.cssText = 'background:#7f1d1d55;border:1px solid #f87171;border-radius:8px;padding:0 6px;font-weight:700;color:#f87171';
-    m.append(t, n, document.createTextNode(' '), pill);
+    left.append(t, n, document.createTextNode(' '), pill);
   } else {
-    m.append(t, n);
+    left.append(t, n);
   }
+  m.appendChild(left);
   if (lastTime) {
     const ts = document.createElement('span');
-    ts.className = 'mut';
-    ts.style.cssText = 'font-size:11px;opacity:.65;font-weight:400';
-    ts.textContent = ` ${lastTime}`;
+    ts.className = 'r';
+    ts.textContent = lastTime;
     ts.title = '最后刷新时间';
     m.appendChild(ts);
   }
@@ -74,8 +80,19 @@ const poll = async (): Promise<void> => {
   btnR.disabled = true;
   btnR.textContent = '↻…';
   try {
-    const r = await host.serviceRequest({ method: 'GET', path: '/count?days=7' });
-    const j = JSON.parse(r.body) as CountAnswer;
+    let r = await host.serviceRequest({ method: 'GET', path: '/count?days=7' });
+    let j = JSON.parse(r.body) as CountAnswer;
+    if (!j.ok && j.error === 'need-config') {
+      // service 重启丢 token：用存的配置自动建连一次
+      try {
+        const c = (await host.storage.get('ztb-cfg', { scope: 'device' })) as { base?: string; account?: string; password?: string } | undefined;
+        if (c?.base && c?.account && c?.password) {
+          await host.serviceRequest({ method: 'POST', path: '/login', body: JSON.stringify({ baseUrl: c.base, account: c.account, password: c.password }) });
+          r = await host.serviceRequest({ method: 'GET', path: '/count?days=7' });
+          j = JSON.parse(r.body) as CountAnswer;
+        }
+      } catch { /* 保持未登录态 */ }
+    }
     if (!j.ok) {
       if (j.error === 'need-config') paint(null);
       else m.textContent = '禅道: 不可用';
