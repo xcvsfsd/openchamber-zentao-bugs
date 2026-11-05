@@ -287,6 +287,34 @@ var server = http.createServer((req, res) => {
     })().catch(() => json(res, 500, { ok: false, error: "bug-failed" }));
     return;
   }
+  if (req.method === "GET" && url.pathname === "/builds") {
+    (async () => {
+      const execId = Number(url.searchParams.get("execution") ?? "0");
+      if (!Number.isInteger(execId) || execId <= 0)
+        return json(res, 200, { ok: true, builds: [] });
+      const r = await zfetch(`/executions/${execId}/builds`);
+      if (r.status === 401)
+        return json(res, 200, { ok: false, error: "need-config" });
+      const builds = (r.json.builds ?? []).map((x) => ({ id: Number(x.id ?? 0), name: String(x.name ?? "") })).filter((x) => x.id > 0);
+      json(res, 200, { ok: true, builds });
+    })().catch(() => json(res, 500, { ok: false, error: "builds-failed" }));
+    return;
+  }
+  if (req.method === "GET" && url.pathname === "/resolutions") {
+    json(res, 200, {
+      ok: true,
+      resolutions: [
+        { id: "fixed", name: "修改代码" },
+        { id: "duplicate", name: "重复Bug" },
+        { id: "willnotfix", name: "不予解决" },
+        { id: "postponed", name: "延期处理" },
+        { id: "external", name: "外部原因" },
+        { id: "bydesign", name: "设计如此" },
+        { id: "notrepro", name: "无法重现" }
+      ]
+    });
+    return;
+  }
   if (req.method === "GET" && url.pathname === "/users") {
     (async () => {
       const r = await zfetch("/users?limit=500");
@@ -295,6 +323,47 @@ var server = http.createServer((req, res) => {
       const users = (r.json.users ?? []).map((u) => ({ account: String(u.account ?? ""), realname: String(u.realname ?? "") })).filter((u) => u.account);
       json(res, 200, { ok: true, users });
     })().catch(() => json(res, 500, { ok: false, error: "users-failed" }));
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/resolve") {
+    readBody(req).then(async (raw) => {
+      if (!raw || typeof raw !== "object")
+        return json(res, 400, { ok: false, error: "bad-request" });
+      const body = raw;
+      const bugId = Number(body.bugId ?? 0);
+      const resolution = typeof body.resolution === "string" ? body.resolution : "";
+      const resolvedBuild = Number(body.resolvedBuild ?? 0);
+      const assignedTo = body.assignedTo;
+      const comment = typeof body.comment === "string" ? body.comment.trim() : "";
+      if (!Number.isInteger(bugId) || bugId <= 0)
+        return json(res, 400, { ok: false, error: "bad-id" });
+      if (!/^[a-z]+$/.test(resolution) || resolution.length > 20)
+        return json(res, 400, { ok: false, error: "bad-resolution" });
+      if (!Number.isInteger(resolvedBuild) || resolvedBuild <= 0)
+        return json(res, 400, { ok: false, error: "bad-build" });
+      if (!isValidAccount(assignedTo))
+        return json(res, 400, { ok: false, error: "bad-account" });
+      if (!comment || comment.length > 2000)
+        return json(res, 400, { ok: false, error: "bad-comment" });
+      try {
+        const now = new Date;
+        const pad = (n) => String(n).padStart(2, "0");
+        const resolvedDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+        await zfetch(`/bugs/${bugId}/resolve`, {
+          method: "POST",
+          body: JSON.stringify({ resolution, resolvedBuild, resolvedDate, assignedTo, comment })
+        });
+        const chk = await zfetch(`/bugs/${bugId}`);
+        const cb = chk.json;
+        if (String(cb.status ?? "") === "resolved") {
+          listCache = null;
+          return json(res, 200, { ok: true });
+        }
+        return json(res, 200, { ok: false, error: "解决未生效（回读不一致），请浏览器确认" });
+      } catch {
+        return json(res, 500, { ok: false, error: "resolve-failed" });
+      }
+    });
     return;
   }
   if (req.method === "POST" && url.pathname === "/assign") {

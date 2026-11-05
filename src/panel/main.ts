@@ -2,7 +2,7 @@
 import { connectHost, HostRequestError } from '@openchamber/sdk';
 import { applyHostReady } from '@openchamber/sdk/ui';
 import { pinyin } from 'pinyin-pro';
-import type { AssignAnswer, BugDetail, BugDetailAnswer, BugItem, BugListAnswer, CountAnswer, UserEntry, UsersAnswer } from '../shared/types.ts';
+import type { AssignAnswer, BugDetail, BugDetailAnswer, BugItem, BugListAnswer, BuildsAnswer, CountAnswer, ResolveAnswer, ResolutionsAnswer, UserEntry, UsersAnswer } from '../shared/types.ts';
 
 const host = connectHost();
 const root = document.querySelector<HTMLElement>('#root');
@@ -26,6 +26,9 @@ button.primary{background:var(--primary,#3574f0);border-color:transparent;color:
 .btn-assign{background:#d97706;border:none;color:#fff;font-weight:700}
 .btn-copy{background:#0d9488;border:none;color:#fff}
 .btn-ok{background:#16a34a;border:none;color:#fff;font-weight:700}
+.btn-resolve{background:#16a34a;border:none;color:#fff;font-weight:700}
+.resolvebox{border-top:1px dashed #8884;padding-top:8px;display:flex;flex-direction:column;gap:8px}
+.resolvebox label{font-size:13px;opacity:.8}
 button:disabled{opacity:.5}
 button.small{padding:4px 10px;font-size:13px}
 .card{border:1px solid #8883;border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:6px}
@@ -254,6 +257,7 @@ const closeCardPanels = (card: HTMLElement): void => {
   card.querySelector('.assign')?.remove();
   card.querySelector('.detail')?.remove();
   card.querySelector('.copylink')?.remove();
+  card.querySelector('.resolvebox')?.remove();
   card.querySelectorAll('button').forEach((x) => {
     if (x.textContent === '收起') x.textContent = '提取';
   });
@@ -339,7 +343,7 @@ const openAssign = (card: HTMLElement, bug: BugItem): void => {
     <select></select>
     <div class="chips"></div>
     <textarea placeholder="备注（从会话结果粘贴，如：已定位xx原因，请验证）"></textarea>
-    <div><button class="small btn-ok act-do">确定指派</button> <button class="small act-cancel">取消</button> <span class="mut act-out"></span></div>`;
+    <div><button class="primary small act-do">确定指派</button> <button class="small act-cancel">取消</button> <span class="mut act-out"></span></div>`;
   const filter = box.querySelector('input') as HTMLInputElement;
   const sel = box.querySelector('select') as HTMLSelectElement;
   const chips = box.querySelector('.chips') as HTMLElement;
@@ -413,6 +417,128 @@ const openAssign = (card: HTMLElement, bug: BugItem): void => {
   filter.focus();
 };
 
+// 解决缓存
+let resolutionsCache: { id: string; name: string }[] | null = null;
+const buildsCache = new Map<number, { id: number; name: string }[]>();
+const loadResolutions = async (): Promise<{ id: string; name: string }[]> => {
+  if (resolutionsCache) return resolutionsCache;
+  try {
+    const r = await call('GET', '/resolutions');
+    const j = JSON.parse(r.body) as ResolutionsAnswer;
+    if (j.ok && j.resolutions.length > 0) resolutionsCache = j.resolutions;
+  } catch { /* 用内置 */ }
+  if (!resolutionsCache) resolutionsCache = [{ id: 'fixed', name: '修改代码' }];
+  return resolutionsCache;
+};
+const loadBuilds = async (executionId: number): Promise<{ id: number; name: string }[]> => {
+  const hit = buildsCache.get(executionId);
+  if (hit) return hit;
+  try {
+    const r = await call('GET', `/builds?execution=${executionId}`);
+    const j = JSON.parse(r.body) as BuildsAnswer;
+    if (j.ok) {
+      buildsCache.set(executionId, j.builds);
+      return j.builds;
+    }
+  } catch { /* 空 */ }
+  return [];
+};
+
+// 解决行内表单：方案默认修改代码，版本默认影响版本，指派默认创建人，备注必填
+const openResolve = (card: HTMLElement, bug: BugItem): void => {
+  closeCardPanels(card);
+  const box = document.createElement('div');
+  box.className = 'resolvebox';
+  box.innerHTML = `
+    <div><label>解决方案</label><select class="r-resolution"></select></div>
+    <div><label>解决版本</label><select class="r-build"></select></div>
+    <div><label>指派给（默认创建人）</label><select class="r-assigned"></select></div>
+    <textarea class="r-comment" placeholder="备注（必填，如：已修复xx问题，请验证）"></textarea>
+    <div><button class="small btn-ok r-do">保存解决</button> <button class="small r-cancel">取消</button> <span class="mut r-out"></span></div>`;
+  const selRes = box.querySelector('.r-resolution') as HTMLSelectElement;
+  const selBuild = box.querySelector('.r-build') as HTMLSelectElement;
+  const selAssign = box.querySelector('.r-assigned') as HTMLSelectElement;
+  const comment = box.querySelector('.r-comment') as HTMLTextAreaElement;
+  const out = box.querySelector('.r-out') as HTMLElement;
+  card.appendChild(box);
+  void (async () => {
+    const [resolutions, builds] = await Promise.all([loadResolutions(), loadBuilds(bug.executionId)]);
+    for (const x of resolutions) {
+      const o = document.createElement('option');
+      o.value = x.id;
+      o.textContent = x.name;
+      if (x.id === 'fixed') o.selected = true;
+      selRes.appendChild(o);
+    }
+    if (builds.length === 0) {
+      const o = document.createElement('option');
+      o.value = '';
+      o.textContent = '无版本可选';
+      selBuild.appendChild(o);
+    } else {
+      for (const bld of builds) {
+        const o = document.createElement('option');
+        o.value = String(bld.id);
+        o.textContent = bld.name;
+        selBuild.appendChild(o);
+      }
+      const match = builds.find((x) => x.name === bug.openedBuild) ?? builds[0];
+      if (match) selBuild.value = String(match.id);
+    }
+    if (users.length === 0) {
+      try {
+        const u = await call('GET', '/users');
+        const uj = JSON.parse(u.body) as UsersAnswer;
+        if (uj.ok) users = uj.users.map((x) => ({ ...x, ...pyOf(`${x.realname}${x.account}`) }));
+      } catch { /* 忽略 */ }
+    }
+    for (const u of users) {
+      const o = document.createElement('option');
+      o.value = u.account;
+      o.textContent = `${u.realname}（${u.account}）`;
+      selAssign.appendChild(o);
+    }
+    if (bug.openedBy && [...selAssign.options].some((o) => o.value === bug.openedBy)) selAssign.value = bug.openedBy;
+  })();
+  (box.querySelector('.r-cancel') as HTMLButtonElement).onclick = () => box.remove();
+  (box.querySelector('.r-do') as HTMLButtonElement).onclick = async (ev) => {
+    const btn = ev.target as HTMLButtonElement;
+    if (!comment.value.trim()) {
+      out.textContent = '备注必填';
+      comment.focus();
+      return;
+    }
+    if (!selBuild.value || !selAssign.value) {
+      out.textContent = '版本和指派人必选';
+      return;
+    }
+    btn.disabled = true;
+    out.textContent = '解决中…';
+    try {
+      const r = await call('POST', '/resolve', {
+        bugId: bug.id,
+        resolution: selRes.value || 'fixed',
+        resolvedBuild: Number(selBuild.value),
+        assignedTo: selAssign.value,
+        comment: comment.value.trim(),
+      });
+      const j = JSON.parse(r.body) as ResolveAnswer;
+      if (!j.ok) {
+        out.textContent = j.error ?? '解决失败';
+        return;
+      }
+      detailCache.delete(bug.id);
+      out.innerHTML = '<span class="ok">已解决</span>';
+      setTimeout(() => void refresh(), 800);
+    } catch {
+      out.textContent = '解决失败';
+    } finally {
+      btn.disabled = false;
+    }
+  };
+  comment.focus();
+};
+
 const render = (items: BugItem[]): void => {
   listEl.innerHTML = '';
   if (items.length === 0) {
@@ -469,6 +595,11 @@ const render = (items: BugItem[]): void => {
     bAssign.className = 'small btn-assign';
     bAssign.textContent = '指派';
     bAssign.onclick = () => openAssign(card, b);
+    const bResolve = document.createElement('button');
+    bResolve.className = 'small btn-resolve';
+    bResolve.textContent = '解决';
+    bResolve.title = '解决Bug（方案/版本/指派/备注）';
+    bResolve.onclick = () => openResolve(card, b);
     const bCopy = document.createElement('button');
     bCopy.className = 'small btn-copy';
     bCopy.textContent = '复制链接';
@@ -511,7 +642,7 @@ const render = (items: BugItem[]): void => {
       inp.select();
       msgEl.textContent = '自动复制失败，链接已选中，按 Ctrl+C 复制';
     };
-    ops.append(bGet, bSend, bAssign, bCopy);
+    ops.append(bGet, bSend, bAssign, bResolve, bCopy);
     card.append(title, meta, ops);
     listEl.appendChild(card);
   }

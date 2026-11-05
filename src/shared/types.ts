@@ -79,3 +79,30 @@ export type CountAnswer = {
   total: number;
   error?: string;
 };
+
+export type BuildEntry = {
+  id: number;
+  name: string;
+};
+
+export type BuildsAnswer = {
+  ok: boolean;
+  builds: BuildEntry[];
+  error?: string;
+};
+
+export type ResolutionEntry = {
+  id: string;
+  name: string;
+};
+
+export type ResolutionsAnswer = {
+  ok: boolean;
+  resolutions: ResolutionEntry[];
+  error?: string;
+};
+
+export type ResolveAnswer = {
+  ok: boolean;
+  error?: string;
+};
