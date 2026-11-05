@@ -20,6 +20,7 @@ a.small{padding:4px 10px;font-size:13px;border:1px solid var(--oc-border,var(--b
 textarea,input[type=text]{width:100%;padding:8px 10px;font-size:14px;border:1px solid var(--oc-border,var(--border,#8888));border-radius:8px;background:var(--oc-elevated,inherit);color:var(--oc-fg,inherit)}
 textarea{min-height:56px;resize:vertical}
 select{padding:8px 10px;font-size:14px;border:1px solid var(--oc-border,var(--border,#8888));border-radius:8px;background:var(--oc-elevated,#fff);color:var(--oc-fg,inherit);max-width:100%}
+select option{background:var(--oc-elevated,#fff);color:var(--oc-fg,#111)}
 .assign{border-top:1px dashed #8884;padding-top:8px;display:flex;flex-direction:column;gap:8px}
 .chips{display:flex;gap:6px;flex-wrap:wrap}
 .chips button{font-size:12.5px;padding:4px 10px}
