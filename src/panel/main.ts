@@ -379,7 +379,8 @@ btnLogin.onclick = async () => {
   btnLogin.disabled = false;
 };
 
-host.onReady(() => {
+host.onReady((ctx) => {
+  applyHostReady(ctx, document.documentElement);
   void (async () => {
     try {
       const f = (await storeGet('ztb-fav')) as Record<string, number> | undefined;
