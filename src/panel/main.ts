@@ -19,6 +19,10 @@ body{margin:0;font:15px/1.6 system-ui,sans-serif}
 .top .t{font-weight:700}
 button{padding:8px 14px;font-size:14px;border:1px solid var(--oc-border,var(--border,#8888));border-radius:8px;background:var(--oc-elevated,inherit);color:var(--oc-fg,inherit);cursor:pointer;white-space:nowrap}
 button.primary{background:var(--primary,#3574f0);border-color:transparent;color:#fff}
+.btn-get{background:linear-gradient(135deg,#8b5cf6,#3b82f6);border:none;color:#fff;font-weight:700}
+.btn-assign{background:#d97706;border:none;color:#fff;font-weight:700}
+.btn-copy{background:#0d9488;border:none;color:#fff}
+.btn-ok{background:#16a34a;border:none;color:#fff;font-weight:700}
 button:disabled{opacity:.5}
 button.small{padding:4px 10px;font-size:13px}
 .card{border:1px solid #8883;border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:6px}
@@ -256,7 +260,7 @@ const openAssign = (card: HTMLElement, bug: BugItem): void => {
     <select></select>
     <div class="chips"></div>
     <textarea placeholder="备注（从会话结果粘贴，如：已定位xx原因，请验证）"></textarea>
-    <div><button class="primary small act-do">确定指派</button> <button class="small act-cancel">取消</button> <span class="mut act-out"></span></div>`;
+    <div><button class="small btn-ok act-do">确定指派</button> <button class="small act-cancel">取消</button> <span class="mut act-out"></span></div>`;
   const filter = box.querySelector('input') as HTMLInputElement;
   const sel = box.querySelector('select') as HTMLSelectElement;
   const chips = box.querySelector('.chips') as HTMLElement;
@@ -373,7 +377,7 @@ const render = (items: BugItem[]): void => {
     const ops = document.createElement('div');
     ops.className = 'ops';
     const bGet = document.createElement('button');
-    bGet.className = 'primary small';
+    bGet.className = 'small btn-get';
     bGet.textContent = '提取';
     bGet.title = '拉取详情并在下方展开（含图片）';
     bGet.onclick = () => void toggleDetail(card, b, bGet);
@@ -383,11 +387,11 @@ const render = (items: BugItem[]): void => {
     bSend.title = '把详情发到当前会话';
     bSend.onclick = () => void sendSession(b.id, bSend);
     const bAssign = document.createElement('button');
-    bAssign.className = 'small';
+    bAssign.className = 'small btn-assign';
     bAssign.textContent = '指派';
     bAssign.onclick = () => openAssign(card, b);
     const bCopy = document.createElement('button');
-    bCopy.className = 'small';
+    bCopy.className = 'small btn-copy';
     bCopy.textContent = '复制链接';
     bCopy.title = '显示链接手动复制（沙箱内剪贴板可能被拦）';
     bCopy.onclick = () => {
