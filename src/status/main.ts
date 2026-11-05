@@ -29,6 +29,9 @@ let auto = false;
 let timer: ReturnType<typeof setInterval> | null = null;
 
 const paint = (total: number | null): void => {
+  m.style.cssText = total !== null && total > 0
+    ? 'background:#7f1d1d55;border:1px solid #f8717166;border-radius:8px;padding:0 6px;'
+    : '';
   if (total === null) {
     m.textContent = '禅道: 待登录（面板⚙连接）';
     return;
