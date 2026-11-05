@@ -755,7 +755,7 @@ btnLogin.onclick = async () => {
   await storeSet('ztb-cfg', c);
   if (await doLogin(c)) {
     cfgBox.hidden = true;
-    void refresh();
+    void refresh('manual');
   }
   btnLogin.disabled = false;
 };
