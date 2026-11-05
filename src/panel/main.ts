@@ -452,7 +452,7 @@ const openResolve = (card: HTMLElement, bug: BugItem): void => {
   box.innerHTML = `
     <div><label>解决方案</label><select class="r-resolution"></select></div>
     <div><label>解决版本</label><select class="r-build"></select></div>
-    <div><label>指派给（默认创建人）</label><select class="r-assigned"></select></div>
+    <div><label>指派给</label><select class="r-assigned"></select></div>
     <textarea class="r-comment" placeholder="备注（必填，如：已修复xx问题，请验证）"></textarea>
     <div><button class="small btn-ok r-do">保存解决</button> <button class="small r-cancel">取消</button> <span class="mut r-out"></span></div>`;
   const selRes = box.querySelector('.r-resolution') as HTMLSelectElement;
