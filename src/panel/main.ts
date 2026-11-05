@@ -247,7 +247,11 @@ const openAssign = (card: HTMLElement, bug: BugItem): void => {
 const render = (items: BugItem[]): void => {
   listEl.innerHTML = '';
   if (items.length === 0) {
-    listEl.innerHTML = '<div class="mut">暂无指派给我的 Bug 🎉</div>';
+    listEl.innerHTML = '';
+    const w = document.createElement('div');
+    w.className = 'empty';
+    w.innerHTML = `<div class="ic">—○—</div><div>${days > 0 ? '近一周无新建 Bug' : '暂无指派给我的 Bug'} 🎉</div>${days > 0 ? '<div class="mut">点“全部”查看历史</div>' : ''}`;
+    listEl.appendChild(w);
     return;
   }
   for (const b of items) {
