@@ -249,6 +249,16 @@ const openZoom = (srcUrl: string, name: string): void => {
   });
 }
 
+// 卡片内展开区互斥：详情 / 指派表单 / 复制链接输入只留一个
+const closeCardPanels = (card: HTMLElement): void => {
+  card.querySelector('.assign')?.remove();
+  card.querySelector('.detail')?.remove();
+  card.querySelector('.copylink')?.remove();
+  card.querySelectorAll('button').forEach((x) => {
+    if (x.textContent === '收起') x.textContent = '提取';
+  });
+};
+
 // 提取：详情（含图片）直接在卡片下方展开，再点收起
 const toggleDetail = async (card: HTMLElement, bug: BugItem, btn: HTMLButtonElement): Promise<void> => {
   const old = card.querySelector('.detail');
@@ -257,6 +267,8 @@ const toggleDetail = async (card: HTMLElement, bug: BugItem, btn: HTMLButtonElem
     btn.textContent = '提取';
     return;
   }
+  closeCardPanels(card);
+  btn.textContent = '提取';
   btn.disabled = true;
   msgEl.textContent = `#${bug.id} 提取中…`;
   try {
@@ -319,7 +331,7 @@ const sendSession = async (id: number, btn: HTMLButtonElement): Promise<void> =>
 
 // 指派行内表单
 const openAssign = (card: HTMLElement, bug: BugItem): void => {
-  card.querySelector('.assign')?.remove();
+  closeCardPanels(card);
   const box = document.createElement('div');
   box.className = 'assign';
   box.innerHTML = `
@@ -462,6 +474,7 @@ const render = (items: BugItem[]): void => {
     bCopy.textContent = '复制链接';
     bCopy.title = '显示链接手动复制（沙箱内剪贴板可能被拦）';
     bCopy.onclick = () => {
+      closeCardPanels(card);
       // 沙箱 iframe 经消息中转调宿主剪贴板时用户手势已丢失：先在同手势内同步 execCommand
       const url = `${baseUrl}/bug-view-${b.id}.html`;
       let done = false;
