@@ -101,9 +101,6 @@ const poll = async (): Promise<void> => {
     lastTime = stamp();
     paint(j.total);
     btnR.title = `手动刷新（上次 ${lastTime}）`;
-    try {
-      await host.storage.set('ztb-statusAt', Date.now(), { scope: 'device' });
-    } catch { /* 忽略 */ }
     const h = Math.ceil(root.getBoundingClientRect().height);
     void host.setHeight(h).catch(() => undefined);
   } catch {
