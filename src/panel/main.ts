@@ -526,8 +526,12 @@ btnLogin.onclick = async () => {
   btnLogin.disabled = false;
 };
 
+let booted = false;
 host.onReady((ctx) => {
   applyHostReady(ctx, document.documentElement);
+  // onReady 会因切会话/换主题等多次触发：自动加载只跑一次，其余靠手动刷新
+  if (booted) return;
+  booted = true;
   void (async () => {
     try {
       const f = (await storeGet('ztb-fav')) as Record<string, number> | undefined;
