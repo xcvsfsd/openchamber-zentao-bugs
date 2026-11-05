@@ -6,19 +6,15 @@ if (!port || !token0) {
   console.error("OPENCHAMBER_SERVICE_PORT and OPENCHAMBER_SERVICE_TOKEN are required");
   process.exit(1);
 }
-var BASE = (process.env.ZENTAO_BASE_URL ?? "http://10.1.20.201:8088/zentao").replace(/\/+$/, "");
-var ACCOUNT = process.env.ZENTAO_ACCOUNT ?? "";
-var PASSWORD = process.env.ZENTAO_PASSWORD ?? "";
 var API = "/api.php/v1";
+var CFG = { base: "", account: "", password: "" };
 var cached = null;
-var login = async () => {
-  if (!ACCOUNT || !PASSWORD)
-    return null;
+var login = async (base, account, password) => {
   try {
-    const r = await fetch(`${BASE}${API}/tokens`, {
+    const r = await fetch(`${base}${API}/tokens`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ account: ACCOUNT, password: PASSWORD }),
+      body: JSON.stringify({ account, password }),
       signal: AbortSignal.timeout(15000)
     });
     const j = await r.json();
@@ -31,16 +27,18 @@ var login = async () => {
   }
 };
 var getToken = async () => {
+  if (!CFG.base || !CFG.account)
+    return null;
   if (cached && Date.now() - cached.at < 10 * 60 * 1000)
     return cached.token;
-  return login();
+  return login(CFG.base, CFG.account, CFG.password);
 };
 var zfetch = async (path, init) => {
   let tk = await getToken();
   if (!tk)
     return { status: 401, json: { error: "need-config" } };
   const doFetch = async (t) => {
-    const r = await fetch(`${BASE}${API}${path}`, {
+    const r = await fetch(`${CFG.base}${API}${path}`, {
       ...init,
       headers: { ...init?.headers ?? {}, Token: t, "Content-Type": "application/json" },
       signal: AbortSignal.timeout(20000)
@@ -55,7 +53,7 @@ var zfetch = async (path, init) => {
   };
   let out = await doFetch(tk);
   if (out.status === 401) {
-    const fresh = await login();
+    const fresh = CFG.base && CFG.account ? await login(CFG.base, CFG.account, CFG.password) : null;
     if (fresh)
       out = await doFetch(fresh);
   }
@@ -75,12 +73,12 @@ var loadAll = async () => {
   for (let i = 0;i < ids.length; i += 6) {
     const batch = await Promise.all(ids.slice(i, i + 6).map(async (pid) => {
       try {
-        const r = await zfetch(`/products/${pid}/bugs?assignedTo=${encodeURIComponent(ACCOUNT)}&limit=200`);
+        const r = await zfetch(`/products/${pid}/bugs?assignedTo=${encodeURIComponent(CFG.account)}&limit=200`);
         const bugs = r.json.bugs ?? [];
         return bugs.filter((b) => {
           const a = b.assignedTo;
           const acc = typeof a === "string" ? a : String(a?.account ?? "");
-          return acc === ACCOUNT;
+          return acc === CFG.account;
         });
       } catch {
         return [];
@@ -146,10 +144,31 @@ var server = http.createServer((req, res) => {
   }
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
   if (url.pathname === "/health") {
-    json(res, 200, { ok: true, configured: Boolean(ACCOUNT && PASSWORD), baseUrl: BASE });
+    json(res, 200, { ok: true, configured: Boolean(CFG.account && cached), baseUrl: CFG.base });
     return;
   }
-  if (!ACCOUNT || !PASSWORD) {
+  if (req.method === "POST" && url.pathname === "/login") {
+    readBody(req).then(async (raw) => {
+      if (!raw || typeof raw !== "object")
+        return json(res, 400, { ok: false, error: "bad-request" });
+      const body = raw;
+      const baseUrl = typeof body.baseUrl === "string" ? body.baseUrl.trim().replace(/\/+$/, "") : "";
+      const account = typeof body.account === "string" ? body.account.trim() : "";
+      const password = typeof body.password === "string" ? body.password : "";
+      if (!/^https?:\/\/.{1,200}$/.test(baseUrl) || !isValidAccount(account) || password.length === 0 || password.length > 200) {
+        return json(res, 400, { ok: false, error: "bad-credential" });
+      }
+      const tk = await login(baseUrl, account, password);
+      if (!tk)
+        return json(res, 200, { ok: false, error: "login-failed" });
+      CFG = { base: baseUrl, account, password };
+      cached = { token: tk, at: Date.now() };
+      listCache = null;
+      return json(res, 200, { ok: true, account });
+    });
+    return;
+  }
+  if (!CFG.account || !cached) {
     json(res, 200, { ok: false, error: "need-config" });
     return;
   }
@@ -186,7 +205,7 @@ var server = http.createServer((req, res) => {
         const entry = { id: fid, name, ext, size, isImage };
         if (isImage && fid > 0 && size > 0 && size <= 300 * 1024) {
           try {
-            const dl = await fetch(`${BASE}${API}/files/${fid}`, {
+            const dl = await fetch(`${CFG.base}${API}/files/${fid}`, {
               headers: { Token: cached?.token ?? await getToken() },
               signal: AbortSignal.timeout(20000)
             });
@@ -223,7 +242,7 @@ var server = http.createServer((req, res) => {
           openedDate: String(b.openedDate ?? ""),
           assignedTo: String(typeof b.assignedTo === "object" && b.assignedTo !== null ? b.assignedTo.account ?? "" : b.assignedTo ?? ""),
           stepsPlain: stepsPlain(String(b.steps ?? "")),
-          bugUrl: `${BASE}/bug-view-${id}.html`,
+          bugUrl: `${CFG.base}/bug-view-${id}.html`,
           files
         }
       });

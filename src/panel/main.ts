@@ -31,6 +31,7 @@ select{padding:8px 10px;font-size:14px;border:1px solid var(--oc-border,var(--bo
 .assign{border-top:1px dashed #8884;padding-top:8px;display:flex;flex-direction:column;gap:8px}
 .chips{display:flex;gap:6px;flex-wrap:wrap}
 .chips button{font-size:12.5px;padding:4px 10px}
+.row{display:flex;gap:8px}
 .mut{font-size:13.5px;opacity:.7}
 .err{background:#7f1d1d22;border:1px solid #7f1d1d66;border-radius:8px;padding:10px;font-size:14px}
 .ok{color:#4ade80}
@@ -39,7 +40,15 @@ select{padding:8px 10px;font-size:14px;border:1px solid var(--oc-border,var(--bo
   <span class="t">🐞 我的 Bug</span>
   <span id="total" class="mut"></span>
   <span style="flex:1"></span>
+  <button id="btn-cfg" class="small" title="禅道连接设置">⚙</button>
   <button id="btn-refresh" class="small" title="刷新">↻</button>
+</div>
+<div id="cfg" class="card" hidden>
+  <input id="cfg-base" type="text" placeholder="禅道地址，如 http://10.1.20.201:8088/zentao" />
+  <div class="row"><input id="cfg-acc" type="text" placeholder="账号" style="flex:1" /></div>
+  <div class="row"><input id="cfg-pwd" type="password" placeholder="密码" style="flex:1" /></div>
+  <div><button id="btn-login" class="primary small">保存并连接</button> <span id="cfg-out" class="mut"></span></div>
+  <div class="mut">配置只存本浏览器（localStorage），service 内存换 token，不落盘。</div>
 </div>
 <div id="msg" class="mut"></div>
 <div id="list" style="display:flex;flex-direction:column;gap:10px"></div>
@@ -257,7 +266,7 @@ const refresh = async (): Promise<void> => {
     if (!j.ok) {
       msgEl.innerHTML =
         j.error === 'need-config'
-          ? '<div class="err">禅道账号未配置：给 OpenChamber 服务加环境变量 ZENTAO_BASE_URL / ZENTAO_ACCOUNT / ZENTAO_PASSWORD 后重启服务</div>'
+          ? '<div class="err">未连接禅道：点右上 ⚙ 填地址/账号/密码后连接</div>'
           : `<div class="err">${j.error ?? '加载失败'}</div>`;
       return;
     }
@@ -280,6 +289,73 @@ const refresh = async (): Promise<void> => {
 
 btnRefresh.onclick = () => void refresh();
 
+// 设置：配置存本浏览器，打开自动建连
+const cfgBox = $('cfg');
+const cfgBase = $('cfg-base') as unknown as HTMLInputElement;
+const cfgAcc = $('cfg-acc') as unknown as HTMLInputElement;
+const cfgPwd = $('cfg-pwd') as unknown as HTMLInputElement;
+const cfgOut = $('cfg-out');
+const btnLogin = $('btn-login') as unknown as HTMLButtonElement;
+($('btn-cfg') as unknown as HTMLButtonElement).onclick = () => {
+  cfgBox.hidden = !cfgBox.hidden;
+};
+type Cfg = { base: string; account: string; password: string };
+const loadCfg = (): Cfg => {
+  try {
+    const j = JSON.parse(localStorage.getItem('ztb-cfg') ?? '{}') as Partial<Cfg>;
+    return { base: j.base ?? '', account: j.account ?? '', password: j.password ?? '' };
+  } catch {
+    return { base: '', account: '', password: '' };
+  }
+};
+const doLogin = async (c: Cfg): Promise<boolean> => {
+  if (!c.base || !c.account || !c.password) return false;
+  try {
+    const r = await call('POST', '/login', { baseUrl: c.base, account: c.account, password: c.password });
+    const j = JSON.parse(r.body) as { ok: boolean; error?: string };
+    if (!j.ok) {
+      cfgOut.textContent = j.error === 'login-failed' ? '连接失败：检查地址/账号/密码' : (j.error ?? '连接失败');
+      return false;
+    }
+    cfgOut.textContent = '';
+    return true;
+  } catch {
+    cfgOut.textContent = '连接失败';
+    return false;
+  }
+};
+btnLogin.onclick = async () => {
+  const c: Cfg = { base: cfgBase.value.trim().replace(/\/+$/, ''), account: cfgAcc.value.trim(), password: cfgPwd.value };
+  if (!c.base || !c.account || !c.password) {
+    cfgOut.textContent = '三项都要填';
+    return;
+  }
+  btnLogin.disabled = true;
+  cfgOut.textContent = '连接中…';
+  try {
+    localStorage.setItem('ztb-cfg', JSON.stringify(c));
+  } catch { /* 忽略 */ }
+  if (await doLogin(c)) {
+    cfgBox.hidden = true;
+    void refresh();
+  }
+  btnLogin.disabled = false;
+};
+
 host.onReady(() => {
-  void refresh();
+  const c = loadCfg();
+  cfgBase.value = c.base;
+  cfgAcc.value = c.account;
+  cfgPwd.value = c.password;
+  if (c.base && c.account && c.password) {
+    void doLogin(c).then((ok) => {
+      if (ok) void refresh();
+      else {
+        cfgBox.hidden = false;
+        msgEl.innerHTML = '<div class="err">自动连接失败，检查配置后点“保存并连接”</div>';
+      }
+    });
+  } else {
+    cfgBox.hidden = false;
+  }
 });

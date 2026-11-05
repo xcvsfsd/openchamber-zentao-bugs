@@ -21,24 +21,11 @@ OpenChamber → 设置 → 扩展 → 粘贴 Git 地址或本地文件夹添加�
 
 批准 `service` 能力，点 rail 上 Bug 图标。
 
-## 环境变量（service 读环境，必须配）
+## 连接（面板内设置）
 
-service 不存凭据，每次用环境变量换 token。给 openchamber 服务加 drop-in：
-
-```ini
-# ~/.config/systemd/user/openchamber.service.d/zentao.conf
-[Service]
-Environment=ZENTAO_BASE_URL=http://10.1.20.201:8088/zentao
-Environment=ZENTAO_ACCOUNT=你的账号
-Environment=ZENTAO_PASSWORD=你的密码
-Environment=NO_PROXY=10.0.0.0/8,192.168.0.0/16
-Environment=no_proxy=10.0.0.0/8,192.168.0.0/16
-```
-
-```bash
-systemctl --user daemon-reload
-systemctl --user restart openchamber   # 会掉线，自己点头再执行
-```
+点面板右上 ⚙，填禅道地址/账号/密码 → 保存并连接。配置只存本浏览器
+localStorage，service 换 token 后只放内存，不落盘；service 重启后打开
+面板自动重连。状态栏 `禅道: 待登录` 表示还没连。
 
 ## 说明
 

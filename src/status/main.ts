@@ -23,7 +23,7 @@ const poll = async (): Promise<void> => {
     const r = await host.serviceRequest({ method: 'GET', path: '/count' });
     const j = JSON.parse(r.body) as CountAnswer;
     if (!j.ok) {
-      m.textContent = '禅道: 未配置';
+      m.textContent = '禅道: 待登录（面板⚙连接）';
       return;
     }
     m.textContent = `禅道: 🐞${j.total}`;

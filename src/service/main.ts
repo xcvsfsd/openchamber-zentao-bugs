@@ -1,5 +1,6 @@
 // 禅道 service：跑在 OpenChamber 起的子进程里，直调禅道 REST v1。
-// 凭据走环境变量（用户选定）：ZENTAO_BASE_URL / ZENTAO_ACCOUNT / ZENTAO_PASSWORD。
+// 凭据来源：面板 POST /login（service 内存缓存）。宿主 spawn service 时只透传白名单
+// 环境变量（PATH/HOME 等），业务环境变量到不了子进程，故不用 process.env。
 import http from 'node:http';
 
 const port = Number(process.env.OPENCHAMBER_SERVICE_PORT);
@@ -9,21 +10,21 @@ if (!port || !token0) {
   process.exit(1);
 }
 
-const BASE = (process.env.ZENTAO_BASE_URL ?? 'http://10.1.20.201:8088/zentao').replace(/\/+$/, '');
-const ACCOUNT = process.env.ZENTAO_ACCOUNT ?? '';
-const PASSWORD = process.env.ZENTAO_PASSWORD ?? '';
 const API = '/api.php/v1';
+
+// 凭据来源：面板 POST /login（service 内存缓存）。宿主 spawn service 时只透传白名单
+// 环境变量（PATH/HOME 等），ZENTAO_* 到不了子进程，故不用 process.env。
+let CFG = { base: '', account: '', password: '' };
 
 // ---- token 缓存（10 分钟），401 自动刷一次 ----
 let cached: { token: string; at: number } | null = null;
 
-const login = async (): Promise<string | null> => {
-  if (!ACCOUNT || !PASSWORD) return null;
+const login = async (base: string, account: string, password: string): Promise<string | null> => {
   try {
-    const r = await fetch(`${BASE}${API}/tokens`, {
+    const r = await fetch(`${base}${API}/tokens`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ account: ACCOUNT, password: PASSWORD }),
+      body: JSON.stringify({ account, password }),
       signal: AbortSignal.timeout(15_000),
     });
     const j = (await r.json()) as { token?: string };
@@ -36,15 +37,16 @@ const login = async (): Promise<string | null> => {
 };
 
 const getToken = async (): Promise<string | null> => {
+  if (!CFG.base || !CFG.account) return null;
   if (cached && Date.now() - cached.at < 10 * 60 * 1000) return cached.token;
-  return login();
+  return login(CFG.base, CFG.account, CFG.password);
 };
 
 const zfetch = async (path: string, init?: RequestInit): Promise<{ status: number; json: unknown }> => {
   let tk = await getToken();
   if (!tk) return { status: 401, json: { error: 'need-config' } };
   const doFetch = async (t: string): Promise<{ status: number; json: unknown }> => {
-    const r = await fetch(`${BASE}${API}${path}`, {
+    const r = await fetch(`${CFG.base}${API}${path}`, {
       ...init,
       headers: { ...(init?.headers ?? {}), Token: t, 'Content-Type': 'application/json' },
       signal: AbortSignal.timeout(20_000),
@@ -60,7 +62,7 @@ const zfetch = async (path: string, init?: RequestInit): Promise<{ status: numbe
   let out = await doFetch(tk);
   if (out.status === 401) {
     // token 过期刷一次
-    const fresh = await login();
+    const fresh = CFG.base && CFG.account ? await login(CFG.base, CFG.account, CFG.password) : null;
     if (fresh) out = await doFetch(fresh);
   }
   return out;
@@ -99,13 +101,13 @@ const loadAll = async (): Promise<{ rows: Row[]; error?: string }> => {
     const batch = await Promise.all(
       ids.slice(i, i + 6).map(async (pid) => {
         try {
-          const r = await zfetch(`/products/${pid}/bugs?assignedTo=${encodeURIComponent(ACCOUNT)}&limit=200`);
+          const r = await zfetch(`/products/${pid}/bugs?assignedTo=${encodeURIComponent(CFG.account)}&limit=200`);
           const bugs = ((r.json as { bugs?: Record<string, unknown>[] }).bugs ?? []) as Record<string, unknown>[];
           // 列表里 assignedTo 可能是 {account,...} 对象或字符串
           return bugs.filter((b) => {
             const a = b.assignedTo as { account?: unknown } | string | undefined;
             const acc = typeof a === 'string' ? a : String(a?.account ?? '');
-            return acc === ACCOUNT;
+            return acc === CFG.account;
           });
         } catch {
           return [];
@@ -187,10 +189,31 @@ const server = http.createServer((req, res) => {
   }
   const url = new URL(req.url ?? '/', 'http://127.0.0.1');
   if (url.pathname === '/health') {
-    json(res, 200, { ok: true, configured: Boolean(ACCOUNT && PASSWORD), baseUrl: BASE });
+    json(res, 200, { ok: true, configured: Boolean(CFG.account && cached), baseUrl: CFG.base });
     return;
   }
-  if (!ACCOUNT || !PASSWORD) {
+
+  // ---- 建连：面板设置页提交凭据，service 换 token 内存缓存 ----
+  if (req.method === 'POST' && url.pathname === '/login') {
+    readBody(req).then(async (raw) => {
+      if (!raw || typeof raw !== 'object') return json(res, 400, { ok: false, error: 'bad-request' });
+      const body = raw as Record<string, unknown>;
+      const baseUrl = typeof body.baseUrl === 'string' ? body.baseUrl.trim().replace(/\/+$/, '') : '';
+      const account = typeof body.account === 'string' ? body.account.trim() : '';
+      const password = typeof body.password === 'string' ? body.password : '';
+      if (!/^https?:\/\/.{1,200}$/.test(baseUrl) || !isValidAccount(account) || password.length === 0 || password.length > 200) {
+        return json(res, 400, { ok: false, error: 'bad-credential' });
+      }
+      const tk = await login(baseUrl, account, password);
+      if (!tk) return json(res, 200, { ok: false, error: 'login-failed' });
+      CFG = { base: baseUrl, account, password };
+      cached = { token: tk, at: Date.now() };
+      listCache = null;
+      return json(res, 200, { ok: true, account });
+    });
+    return;
+  }
+  if (!CFG.account || !cached) {
     json(res, 200, { ok: false, error: 'need-config' });
     return;
   }
@@ -235,7 +258,7 @@ const server = http.createServer((req, res) => {
         // 图片 ≤300KB 内嵌 base64，超限只给名（面板提示浏览器看）
         if (isImage && fid > 0 && size > 0 && size <= 300 * 1024) {
           try {
-            const dl = await fetch(`${BASE}${API}/files/${fid}`, {
+            const dl = await fetch(`${CFG.base}${API}/files/${fid}`, {
               headers: { Token: (cached?.token ?? (await getToken())) as string },
               signal: AbortSignal.timeout(20_000),
             });
@@ -280,7 +303,7 @@ const server = http.createServer((req, res) => {
               : (b.assignedTo ?? ''),
           ),
           stepsPlain: stepsPlain(String(b.steps ?? '')),
-          bugUrl: `${BASE}/bug-view-${id}.html`,
+          bugUrl: `${CFG.base}/bug-view-${id}.html`,
           files,
         },
       });
