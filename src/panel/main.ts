@@ -66,15 +66,29 @@ const btnRefresh = $('btn-refresh') as unknown as HTMLButtonElement;
 let baseUrl = '';
 let users: (UserEntry & { py: string; init: string })[] = [];
 let favs: Record<string, number> = {};
-try {
-  favs = JSON.parse(localStorage.getItem('ztb-fav') ?? '{}') as Record<string, number>;
-} catch {
-  favs = {};
-}
-const saveFavs = (): void => {
+// 持久化：优先宿主 device 存储（iframe localStorage 可能不持久），localStorage 兜底
+const storeGet = async (key: string): Promise<unknown> => {
   try {
-    localStorage.setItem('ztb-fav', JSON.stringify(favs));
+    const v = await host.storage.get(key, { scope: 'device' });
+    if (v !== undefined) return v;
+  } catch { /* 降级本地 */ }
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : undefined;
+  } catch {
+    return undefined;
+  }
+};
+const storeSet = async (key: string, value: unknown): Promise<void> => {
+  try {
+    await host.storage.set(key, value as never, { scope: 'device' });
+  } catch { /* 降级本地 */ }
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
   } catch { /* 忽略 */ }
+};
+const saveFavs = (): void => {
+  void storeSet('ztb-fav', favs);
 };
 
 const call = (method: 'GET' | 'POST', p: string, body?: unknown) =>
@@ -315,13 +329,12 @@ const btnLogin = $('btn-login') as unknown as HTMLButtonElement;
   cfgBox.hidden = !cfgBox.hidden;
 };
 type Cfg = { base: string; account: string; password: string };
-const loadCfg = (): Cfg => {
+const loadCfg = async (): Promise<Cfg> => {
   try {
-    const j = JSON.parse(localStorage.getItem('ztb-cfg') ?? '{}') as Partial<Cfg>;
-    return { base: j.base ?? '', account: j.account ?? '', password: j.password ?? '' };
-  } catch {
-    return { base: '', account: '', password: '' };
-  }
+    const v = (await storeGet('ztb-cfg')) as Partial<Cfg> | undefined;
+    if (v && typeof v === 'object') return { base: v.base ?? '', account: v.account ?? '', password: v.password ?? '' };
+  } catch { /* 空配置 */ }
+  return { base: '', account: '', password: '' };
 };
 const doLogin = async (c: Cfg): Promise<boolean> => {
   if (!c.base || !c.account || !c.password) return false;
@@ -347,9 +360,7 @@ btnLogin.onclick = async () => {
   }
   btnLogin.disabled = true;
   cfgOut.textContent = '连接中…';
-  try {
-    localStorage.setItem('ztb-cfg', JSON.stringify(c));
-  } catch { /* 忽略 */ }
+  await storeSet('ztb-cfg', c);
   if (await doLogin(c)) {
     cfgBox.hidden = true;
     void refresh();
@@ -358,19 +369,24 @@ btnLogin.onclick = async () => {
 };
 
 host.onReady(() => {
-  const c = loadCfg();
-  cfgBase.value = c.base;
-  cfgAcc.value = c.account;
-  cfgPwd.value = c.password;
-  if (c.base && c.account && c.password) {
-    void doLogin(c).then((ok) => {
+  void (async () => {
+    try {
+      const f = (await storeGet('ztb-fav')) as Record<string, number> | undefined;
+      if (f && typeof f === 'object') favs = f;
+    } catch { /* 无常用人 */ }
+    const c = await loadCfg();
+    cfgBase.value = c.base;
+    cfgAcc.value = c.account;
+    cfgPwd.value = c.password;
+    if (c.base && c.account && c.password) {
+      const ok = await doLogin(c);
       if (ok) void refresh();
       else {
         cfgBox.hidden = false;
         msgEl.innerHTML = '<div class="err">自动连接失败，检查配置后点“保存并连接”</div>';
       }
-    });
-  } else {
-    cfgBox.hidden = false;
-  }
+    } else {
+      cfgBox.hidden = false;
+    }
+  })();
 });
