@@ -11,10 +11,11 @@ body{margin:0;font:12px/1.5 system-ui,sans-serif}
 #root{padding:2px 4px;cursor:pointer;display:flex;flex-direction:column;gap:2px}
 .m{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .m b{font-size:13px}
-.row{display:flex;gap:4px}
+.row{display:flex;gap:4px;align-items:center}
+#t{font-size:10.5px;opacity:.65;white-space:nowrap}
 button{flex:1;padding:1px 4px;font-size:11.5px;border:1px solid var(--oc-border,var(--border,#8888));border-radius:6px;background:var(--oc-elevated,inherit);color:var(--oc-fg,inherit);cursor:pointer;white-space:nowrap}
 button.on{border-color:var(--primary,#3574f0);color:var(--primary,#3574f0);font-weight:700}
-</style><div class="m" id="m">禅道: …</div><div class="row"><button id="btn-r" title="手动刷新">↻ 刷新</button><button id="btn-a" title="定时刷新开关（60秒）">⏱ 关</button></div>`;
+</style><div class="m" id="m">禅道: …</div><div class="row"><button id="btn-r" title="手动刷新">↻ 刷新</button><button id="btn-a" title="定时刷新开关（60秒）">⏱ 关</button><span id="t" class="mut" title="最后刷新时间"></span></div>`;
 const m = document.querySelector('#m') as HTMLElement;
 const btnR = document.querySelector('#btn-r') as unknown as HTMLButtonElement;
 const btnA = document.querySelector('#btn-a') as unknown as HTMLButtonElement;
@@ -50,8 +51,17 @@ const paint = (total: number | null): void => {
   void host.setBadge(total > 0 ? total : null).catch(() => undefined);
 };
 
+let lastTime = '';
+const stamp = (): string => {
+  const d = new Date();
+  const p = (n: number): string => String(n).padStart(2, '0');
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+};
+
 const poll = async (): Promise<void> => {
   if (document.hidden) return;
+  btnR.disabled = true;
+  btnR.textContent = '↻…';
   try {
     const r = await host.serviceRequest({ method: 'GET', path: '/count?days=7' });
     const j = JSON.parse(r.body) as CountAnswer;
@@ -61,10 +71,16 @@ const poll = async (): Promise<void> => {
       return;
     }
     paint(j.total);
+    lastTime = stamp();
+    (document.querySelector('#t') as HTMLElement).textContent = lastTime;
+    btnR.title = `手动刷新（上次 ${lastTime}）`;
     const h = Math.ceil(root.getBoundingClientRect().height);
     void host.setHeight(h).catch(() => undefined);
   } catch {
     m.textContent = '禅道: 未启用本地服务';
+  } finally {
+    btnR.disabled = false;
+    btnR.textContent = '↻ 刷新';
   }
 };
 
