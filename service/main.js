@@ -204,6 +204,20 @@ var server = http.createServer((req, res) => {
         return json(res, 200, { ok: false, error: "not-found" });
       const rawFiles = Array.isArray(b.files) ? b.files : [];
       const files = [];
+      const IMG_MAX = 1 * 1024 * 1024;
+      const dlWithRetry = async (url2) => {
+        let tk = cached?.token ?? await getToken();
+        if (!tk)
+          return null;
+        let dl = await fetch(url2, { headers: { Token: tk }, signal: AbortSignal.timeout(20000) });
+        if (dl.status === 401) {
+          const fresh = CFG.base && CFG.account ? await login(CFG.base, CFG.account, CFG.password) : null;
+          if (!fresh)
+            return dl;
+          dl = await fetch(url2, { headers: { Token: fresh }, signal: AbortSignal.timeout(20000) });
+        }
+        return dl;
+      };
       for (const f of rawFiles.slice(0, 5)) {
         const fid = Number(f.id ?? f.fileID ?? 0);
         const name = String(f.title ?? f.name ?? f.pathname ?? `附件${fid}`);
@@ -211,47 +225,46 @@ var server = http.createServer((req, res) => {
         const size = Number(f.size ?? f.fileSize ?? 0);
         const isImage = ["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(ext);
         const entry = { id: fid, name, ext, size, isImage };
-        if (isImage && fid > 0 && size > 0 && size <= 300 * 1024) {
+        if (isImage && fid > 0 && size > 0 && size <= IMG_MAX) {
           try {
-            const dl = await fetch(`${CFG.base}${API}/files/${fid}`, {
-              headers: { Token: cached?.token ?? await getToken() },
-              signal: AbortSignal.timeout(20000)
-            });
-            const buf = Buffer.from(await dl.arrayBuffer());
-            if (buf.length > 0 && buf.length <= 300 * 1024) {
-              const mime = ext === "png" ? "image/png" : ext === "gif" ? "image/gif" : ext === "webp" ? "image/webp" : ext === "bmp" ? "image/bmp" : "image/jpeg";
-              entry.dataUrl = `data:${mime};base64,${buf.toString("base64")}`;
-            } else {
+            const dl = await dlWithRetry(`${CFG.base}${API}/files/${fid}`);
+            if (!dl) {
               entry.tooLarge = true;
+            } else {
+              const buf = Buffer.from(await dl.arrayBuffer());
+              if (buf.length > 0 && buf.length <= IMG_MAX) {
+                const mime = ext === "png" ? "image/png" : ext === "gif" ? "image/gif" : ext === "webp" ? "image/webp" : ext === "bmp" ? "image/bmp" : "image/jpeg";
+                entry.dataUrl = `data:${mime};base64,${buf.toString("base64")}`;
+              } else {
+                entry.tooLarge = true;
+              }
             }
           } catch {
             entry.tooLarge = true;
           }
-        } else if (isImage && size > 300 * 1024) {
+        } else if (isImage && size > IMG_MAX) {
           entry.tooLarge = true;
         }
         files.push(entry);
       }
       const rawSteps = String(b.steps ?? "");
       const seen = new Set(files.map((f) => f.id));
-      const tkInline = cached?.token ?? await getToken();
       const reInline = /file-read-(\d+)\.([A-Za-z]{2,4})/g;
       let mInline;
       let inlineCount = 0;
-      while ((mInline = reInline.exec(rawSteps)) !== null && inlineCount < 3) {
+      while ((mInline = reInline.exec(rawSteps)) !== null && inlineCount < 5) {
         const fid = Number(mInline[1]);
         const fext = (mInline[2] ?? "png").toLowerCase();
         if (!fid || seen.has(fid))
           continue;
         seen.add(fid);
         try {
-          const dl = await fetch(`${CFG.base}/file-read-${fid}.${fext}`, {
-            headers: tkInline ? { Token: tkInline } : {},
-            signal: AbortSignal.timeout(20000)
-          });
+          const dl = await dlWithRetry(`${CFG.base}/file-read-${fid}.${fext}`);
+          if (!dl)
+            continue;
           const ct = dl.headers.get("content-type") ?? "";
           const buf = Buffer.from(await dl.arrayBuffer());
-          if (buf.length > 0 && buf.length <= 300 * 1024 && ct.startsWith("image/")) {
+          if (buf.length > 0 && buf.length <= IMG_MAX && ct.startsWith("image/")) {
             files.push({
               id: fid,
               name: `步骤截图${fid}.${fext}`,
@@ -264,6 +277,26 @@ var server = http.createServer((req, res) => {
           }
         } catch {}
       }
+      const stepsBlocks = [];
+      const byId = new Map(files.filter((f) => f.isImage && f.dataUrl).map((f) => [f.id, f]));
+      const reImg = /<img[^>]*file-read-(\d+)\.[A-Za-z]{2,4}[^>]*>/g;
+      let last = 0;
+      let mImg;
+      while ((mImg = reImg.exec(rawSteps)) !== null) {
+        const head = stepsPlain(rawSteps.slice(last, mImg.index));
+        if (head)
+          stepsBlocks.push({ kind: "text", text: head });
+        const fid = Number(mImg[1]);
+        const hit = byId.get(fid);
+        if (hit?.dataUrl)
+          stepsBlocks.push({ kind: "image", fileId: fid, name: hit.name, dataUrl: hit.dataUrl });
+        else
+          stepsBlocks.push({ kind: "text", text: `[图片${fid}未加载]` });
+        last = mImg.index + mImg[0].length;
+      }
+      const tail = stepsPlain(rawSteps.slice(last));
+      if (tail)
+        stepsBlocks.push({ kind: "text", text: tail });
       const pid = Number(b.product ?? 0);
       const pname = listCache?.names.get(pid) ?? "";
       json(res, 200, {
@@ -282,6 +315,7 @@ var server = http.createServer((req, res) => {
           openedDate: String(b.openedDate ?? ""),
           assignedTo: String(typeof b.assignedTo === "object" && b.assignedTo !== null ? b.assignedTo.account ?? "" : b.assignedTo ?? ""),
           stepsPlain: stepsPlain(String(b.steps ?? "")),
+          stepsBlocks,
           bugUrl: `${CFG.base}/bug-view-${id}.html`,
           files
         }

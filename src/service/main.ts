@@ -260,6 +260,20 @@ const server = http.createServer((req, res) => {
         dataUrl?: string;
         tooLarge?: boolean;
       }[] = [];
+      // 图片 ≤1MB 内嵌 base64（原300KB生产截图普遍超限），超限只给名
+      const IMG_MAX = 1 * 1024 * 1024;
+      // 图片直取401刷token一次（zfetch有刷，直取原来没有，过期即变登录页）
+      const dlWithRetry = async (url: string): Promise<Response | null> => {
+        let tk = cached?.token ?? (await getToken());
+        if (!tk) return null;
+        let dl = await fetch(url, { headers: { Token: tk }, signal: AbortSignal.timeout(20_000) });
+        if (dl.status === 401) {
+          const fresh = CFG.base && CFG.account ? await login(CFG.base, CFG.account, CFG.password) : null;
+          if (!fresh) return dl;
+          dl = await fetch(url, { headers: { Token: fresh }, signal: AbortSignal.timeout(20_000) });
+        }
+        return dl;
+      };
       for (const f of rawFiles.slice(0, 5)) {
         const fid = Number(f.id ?? f.fileID ?? 0);
         const name = String(f.title ?? f.name ?? f.pathname ?? `附件${fid}`);
@@ -267,24 +281,24 @@ const server = http.createServer((req, res) => {
         const size = Number(f.size ?? f.fileSize ?? 0);
         const isImage = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'].includes(ext);
         const entry: (typeof files)[number] = { id: fid, name, ext, size, isImage };
-        // 图片 ≤300KB 内嵌 base64，超限只给名（面板提示浏览器看）
-        if (isImage && fid > 0 && size > 0 && size <= 300 * 1024) {
+        if (isImage && fid > 0 && size > 0 && size <= IMG_MAX) {
           try {
-            const dl = await fetch(`${CFG.base}${API}/files/${fid}`, {
-              headers: { Token: (cached?.token ?? (await getToken())) as string },
-              signal: AbortSignal.timeout(20_000),
-            });
-            const buf = Buffer.from(await dl.arrayBuffer());
-            if (buf.length > 0 && buf.length <= 300 * 1024) {
-              const mime = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : ext === 'bmp' ? 'image/bmp' : 'image/jpeg';
-              entry.dataUrl = `data:${mime};base64,${buf.toString('base64')}`;
-            } else {
+            const dl = await dlWithRetry(`${CFG.base}${API}/files/${fid}`);
+            if (!dl) {
               entry.tooLarge = true;
+            } else {
+              const buf = Buffer.from(await dl.arrayBuffer());
+              if (buf.length > 0 && buf.length <= IMG_MAX) {
+                const mime = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : ext === 'bmp' ? 'image/bmp' : 'image/jpeg';
+                entry.dataUrl = `data:${mime};base64,${buf.toString('base64')}`;
+              } else {
+                entry.tooLarge = true;
+              }
             }
           } catch {
             entry.tooLarge = true;
           }
-        } else if (isImage && size > 300 * 1024) {
+        } else if (isImage && size > IMG_MAX) {
           entry.tooLarge = true;
         }
         files.push(entry);
@@ -292,23 +306,20 @@ const server = http.createServer((req, res) => {
       // 步骤 HTML 内联截图：file-read-{id}.ext，需 Token 下载（裸访返回登录页）
       const rawSteps = String(b.steps ?? '');
       const seen = new Set(files.map((f) => f.id));
-      const tkInline = cached?.token ?? (await getToken());
       const reInline = /file-read-(\d+)\.([A-Za-z]{2,4})/g;
       let mInline: RegExpExecArray | null;
       let inlineCount = 0;
-      while ((mInline = reInline.exec(rawSteps)) !== null && inlineCount < 3) {
+      while ((mInline = reInline.exec(rawSteps)) !== null && inlineCount < 5) {
         const fid = Number(mInline[1]);
         const fext = (mInline[2] ?? 'png').toLowerCase();
         if (!fid || seen.has(fid)) continue;
         seen.add(fid);
         try {
-          const dl = await fetch(`${CFG.base}/file-read-${fid}.${fext}`, {
-            headers: tkInline ? { Token: tkInline } : {},
-            signal: AbortSignal.timeout(20_000),
-          });
+          const dl = await dlWithRetry(`${CFG.base}/file-read-${fid}.${fext}`);
+          if (!dl) continue;
           const ct = dl.headers.get('content-type') ?? '';
           const buf = Buffer.from(await dl.arrayBuffer());
-          if (buf.length > 0 && buf.length <= 300 * 1024 && ct.startsWith('image/')) {
+          if (buf.length > 0 && buf.length <= IMG_MAX && ct.startsWith('image/')) {
             files.push({
               id: fid,
               name: `步骤截图${fid}.${fext}`,
@@ -321,6 +332,23 @@ const server = http.createServer((req, res) => {
           }
         } catch { /* 跳过单张 */ }
       }
+      // 有序步骤块：按原文顺序交替文本/图片，面板行内渲染用
+      const stepsBlocks: ({ kind: 'text'; text: string } | { kind: 'image'; fileId: number; name: string; dataUrl: string })[] = [];
+      const byId = new Map(files.filter((f) => f.isImage && f.dataUrl).map((f) => [f.id, f]));
+      const reImg = /<img[^>]*file-read-(\d+)\.[A-Za-z]{2,4}[^>]*>/g;
+      let last = 0;
+      let mImg: RegExpExecArray | null;
+      while ((mImg = reImg.exec(rawSteps)) !== null) {
+        const head = stepsPlain(rawSteps.slice(last, mImg.index));
+        if (head) stepsBlocks.push({ kind: 'text', text: head });
+        const fid = Number(mImg[1]);
+        const hit = byId.get(fid);
+        if (hit?.dataUrl) stepsBlocks.push({ kind: 'image', fileId: fid, name: hit.name, dataUrl: hit.dataUrl });
+        else stepsBlocks.push({ kind: 'text', text: `[图片${fid}未加载]` });
+        last = mImg.index + mImg[0].length;
+      }
+      const tail = stepsPlain(rawSteps.slice(last));
+      if (tail) stepsBlocks.push({ kind: 'text', text: tail });
       const pid = Number(b.product ?? 0);
       const pname = listCache?.names.get(pid) ?? '';
       json(res, 200, {
@@ -347,6 +375,7 @@ const server = http.createServer((req, res) => {
               : (b.assignedTo ?? ''),
           ),
           stepsPlain: stepsPlain(String(b.steps ?? '')),
+          stepsBlocks,
           bugUrl: `${CFG.base}/bug-view-${id}.html`,
           files,
         },

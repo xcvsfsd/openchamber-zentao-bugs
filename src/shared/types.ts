@@ -34,6 +34,11 @@ export type BugFile = {
   tooLarge?: boolean;
 };
 
+// 有序步骤块：按原文顺序交替文本/图片，面板行内渲染用
+export type StepsBlock =
+  | { kind: 'text'; text: string }
+  | { kind: 'image'; fileId: number; name: string; dataUrl: string };
+
 export type BugDetail = {
   id: number;
   title: string;
@@ -48,6 +53,7 @@ export type BugDetail = {
   openedDate: string;
   assignedTo: string;
   stepsPlain: string;
+  stepsBlocks?: StepsBlock[];
   bugUrl: string;
   files: BugFile[];
 };

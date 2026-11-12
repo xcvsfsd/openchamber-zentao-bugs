@@ -45,7 +45,8 @@ select option{background:var(--oc-elevated,#fff);color:var(--oc-fg,#111)}
 .chips button{font-size:12.5px;padding:4px 10px}
 .pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12.5px;font-weight:700;border:1px solid}
 .detail{border-top:1px dashed #8884;padding-top:8px;display:flex;flex-direction:column;gap:8px}
-.steps{white-space:pre-wrap;word-break:break-word;font-size:14px;background:#8881;border-radius:8px;padding:8px 10px;max-height:320px;overflow-y:auto}
+// 详情全文展开：不限高，整页滚动看；点图进全屏灯箱细看
+.steps{white-space:pre-wrap;word-break:break-word;font-size:14px;background:#8881;border-radius:8px;padding:8px 10px}
 .detail img{max-width:100%;border-radius:8px;border:1px solid #8883;cursor:zoom-in}
 .mono{font-family:monospace;font-size:12.5px;word-break:break-all}
 #zoom{position:fixed;inset:0;background:rgba(0,0,0,.88);display:flex;align-items:center;justify-content:center;z-index:50;padding:12px;cursor:zoom-out}
@@ -160,6 +161,7 @@ const fetchBug = async (id: number): Promise<BugDetail | null> => {
 };
 
 const buildMarkdown = (b: BugDetail): string => {
+  // 轻量发送：只给ID+文本+附件名，会话内用MCP按需拉图，不嵌base64省上下文
   const lines = [
     `【禅道Bug #${b.id}】${b.title}`,
     `状态 ${b.status}｜严重 ${sevText(b.severity)}｜优先级 P${b.pri}｜类型 ${b.type || '-'}`,
@@ -168,13 +170,12 @@ const buildMarkdown = (b: BugDetail): string => {
     '重现步骤：',
     b.stepsPlain || '（无）',
   ];
-  const imgs = (b.files ?? []).filter((f) => f.isImage && f.dataUrl).slice(0, 3);
-  for (const f of imgs) lines.push('', `![${f.name}](${f.dataUrl ?? ''})`);
-  const big = (b.files ?? []).filter((f) => f.tooLarge).map((f) => f.name);
-  if (big.length > 0) lines.push('', `大图未内嵌（>300KB）：${big.join('、')}`);
-  const nonImg = (b.files ?? []).filter((f) => !f.isImage).map((f) => f.name);
+  const imgs = (b.files ?? []).filter((f) => f.isImage).slice(0, 5);
+  if (imgs.length > 0) lines.push('', `图片（需看时用MCP下载）：${imgs.map((f) => `${f.name}(fileId=${f.id})`).join('、')}`);
+  const nonImg = (b.files ?? []).filter((f) => !f.isImage).map((f) => `${f.name}(fileId=${f.id})`);
   if (nonImg.length > 0) lines.push('', `附件：${nonImg.join('、')}`);
   lines.push('', b.bugUrl);
+  lines.push('', '需要看图时用 zentao_get_bug / zentao_download_file 按需拉取。');
   return lines.join('\n');
 };
 
@@ -286,22 +287,53 @@ const toggleDetail = async (card: HTMLElement, bug: BugItem, btn: HTMLButtonElem
     head.textContent = `状态 ${b.status}｜${sevText(b.severity)}·P${b.pri}｜${b.productName || ''}｜${b.openedBy} ${b.openedDate}｜指派 ${b.assignedTo}`;
     const steps = document.createElement('div');
     steps.className = 'steps';
-    steps.textContent = b.stepsPlain || '（无重现步骤）';
-    box.append(head, steps);
-    for (const f of (b.files ?? []).filter((x) => x.isImage && x.dataUrl).slice(0, 3)) {
-      const img = document.createElement('img');
-      img.src = f.dataUrl ?? '';
-      img.alt = f.name;
-      img.title = `${f.name}（点击放大）`;
-      img.onclick = () => openZoom(f.dataUrl ?? '', f.name);
-      box.appendChild(img);
+    // 行内渲染：按原文顺序交替文本/图片，无序块时回退旧逻辑
+    const blocks = b.stepsBlocks ?? [];
+    if (blocks.length > 0) {
+      const used = new Set<number>();
+      for (const bl of blocks) {
+        if (bl.kind === 'text') {
+          const t = document.createElement('div');
+          t.textContent = bl.text;
+          steps.appendChild(t);
+        } else {
+          used.add(bl.fileId);
+          const img = document.createElement('img');
+          img.src = bl.dataUrl;
+          img.alt = bl.name;
+          img.title = `${bl.name}（点击放大）`;
+          img.onclick = () => openZoom(bl.dataUrl, bl.name);
+          steps.appendChild(img);
+        }
+      }
+      box.append(head, steps);
+      // 未被正文引用的图（附件图）坠尾，避免丢失
+      for (const f of (b.files ?? []).filter((x) => x.isImage && x.dataUrl && !used.has(x.id)).slice(0, 3)) {
+        const img = document.createElement('img');
+        img.src = f.dataUrl ?? '';
+        img.alt = f.name;
+        img.title = `${f.name}（点击放大）`;
+        img.onclick = () => openZoom(f.dataUrl ?? '', f.name);
+        box.appendChild(img);
+      }
+    } else {
+      steps.textContent = b.stepsPlain || '（无重现步骤）';
+      box.append(head, steps);
+      for (const f of (b.files ?? []).filter((x) => x.isImage && x.dataUrl).slice(0, 3)) {
+        const img = document.createElement('img');
+        img.src = f.dataUrl ?? '';
+        img.alt = f.name;
+        img.title = `${f.name}（点击放大）`;
+        img.onclick = () => openZoom(f.dataUrl ?? '', f.name);
+        box.appendChild(img);
+      }
     }
     const big = (b.files ?? []).filter((f) => f.tooLarge).map((f) => f.name);
     const nonImg = (b.files ?? []).filter((f) => !f.isImage).map((f) => f.name);
     if (big.length > 0 || nonImg.length > 0) {
       const att = document.createElement('div');
       att.className = 'mut';
-      att.textContent = [big.length > 0 ? `大图>300KB未展示：${big.join('、')}` : '', nonImg.length > 0 ? `附件：${nonImg.join('、')}` : ''].filter(Boolean).join('；');
+      att.textContent = [big.length > 0 ? `大图>1MB未展示：${big.join('、')}` : '', nonImg.length > 0 ? `附件：${nonImg.join('、')}` : ''].filter(Boolean).join('；');
       box.appendChild(att);
     }
     const url = document.createElement('div');
@@ -664,6 +696,8 @@ const render = (items: BugItem[]): void => {
 };
 
 const refresh = async (src: 'manual' | 'open' | 'action' = 'manual'): Promise<void> => {
+  // 手动刷新清详情缓存，避免旧的无图数据残留
+  if (src === 'manual') detailCache.clear();
   msgEl.textContent = src === 'open' ? '初次加载中…' : src === 'action' ? '已更新，刷新中…' : '加载中…';
   try {
     const h = await call('GET', '/health');
