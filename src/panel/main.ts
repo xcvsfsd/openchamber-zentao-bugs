@@ -113,6 +113,18 @@ const saveFavs = (): void => {
   void storeSet('ztb-fav', favs);
 };
 
+// 状态区点待办数进来时留的一次性标记：读到就按一次刷新按钮，读完清掉
+const consumeOpenRefresh = async (): Promise<boolean> => {
+  try {
+    const v = await storeGet('ztb-open-refresh');
+    if (!v) return false;
+    await storeSet('ztb-open-refresh', '');
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const call = (method: 'GET' | 'POST', p: string, body?: unknown) =>
   host.serviceRequest({ method, path: p, body: body === undefined ? undefined : JSON.stringify(body) });
 
@@ -819,6 +831,16 @@ host.onReady((ctx) => {
     }
     if (booted) return;
     booted = true;
-    void refresh('open');
+    // 从状态区待办数进来：等一次刷新按钮的动作，否则走初次加载
+    if (await consumeOpenRefresh()) void refresh('manual');
+    else void refresh('open');
+  })();
+});
+
+// 面板常驻时再次打开不会重新挂载：切回可见若带着标记，补按一次刷新
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  void (async () => {
+    if (await consumeOpenRefresh()) void refresh('manual');
   })();
 });

@@ -1,26 +1,40 @@
-// Work Status 区：待办数（非零高亮）+ 定时刷新开关 + 手动刷新，点击打开本扩展面板。
+// Work Status 区：待办数与手动刷新放在分区标题栏（宿主渲染控件），区内只留上次刷新时间与定时开关。
+// 点击空白处打开本扩展面板。
 import { connectHost } from '@openchamber/sdk';
 import { applyHostReady } from '@openchamber/sdk/ui';
 import type { CountAnswer } from '../shared/types.ts';
 
 const host = connectHost();
+
+// 标题栏控件回调必须同步注册：数量点开面板并让面板自动刷新一次，↻ 只刷新
+host.onStatusControl((e) => {
+  if (e.id === 'refresh') void poll();
+  else if (e.id === 'count') void openPanelWithRefresh();
+});
+
 const root = document.querySelector<HTMLElement>('#root');
 if (!root) throw new Error('Missing #root');
+
+// 打开面板前留个一次性标记，面板读到就按一次「刷新」
+const openPanelWithRefresh = async (): Promise<void> => {
+  try {
+    await host.storage.set('ztb-open-refresh', String(Date.now()), { scope: 'device' });
+  } catch { /* 标记失败也照常打开 */ }
+  void host.openSurface('plugin:zentao-bugs').catch(() => undefined);
+};
 root.innerHTML = `<style>
 body{margin:0;font:12px/1.5 system-ui,sans-serif}
 #root{padding:2px 4px;cursor:pointer;display:flex;flex-direction:column;gap:2px}
-.m{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;justify-content:space-between;align-items:center;gap:8px}
-.m .l{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.m .r{flex:none;font-size:11px;opacity:.65;font-weight:400}
-.m b{font-size:13px}
+.m{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px;opacity:.75}
 .row{display:flex;gap:4px;align-items:center}
-#t{font-size:10.5px;opacity:.65;white-space:nowrap}
 button{flex:1;padding:1px 4px;font-size:11.5px;border:1px solid var(--oc-border,var(--border,#8888));border-radius:6px;background:var(--oc-elevated,inherit);color:var(--oc-fg,inherit);cursor:pointer;white-space:nowrap}
 button.on{border-color:var(--primary,#3574f0);color:var(--primary,#3574f0);font-weight:700}
-</style><div class="m" id="m">禅道: …</div><div class="row"><button id="btn-r" title="手动刷新">↻ 刷新</button><button id="btn-a" title="定时刷新开关（60秒）">⏱ 关</button></div>`;
+button[hidden]{display:none}
+</style><div class="row"><button id="btn-r" title="手动刷新" hidden>↻</button><button id="btn-a" title="定时刷新开关（60秒）">定时刷新:关</button></div><div class="m" id="m"></div>`;
+
 const m = document.querySelector('#m') as HTMLElement;
-const btnR = document.querySelector('#btn-r') as unknown as HTMLButtonElement;
-const btnA = document.querySelector('#btn-a') as unknown as HTMLButtonElement;
+const btnR = document.querySelector('#btn-r') as HTMLButtonElement;
+const btnA = document.querySelector('#btn-a') as HTMLButtonElement;
 
 root.onclick = (e) => {
   if ((e.target as HTMLElement).tagName === 'BUTTON') return;
@@ -29,56 +43,57 @@ root.onclick = (e) => {
 
 let auto = false;
 let timer: ReturnType<typeof setInterval> | null = null;
-
-const paint = (total: number | null): void => {
-  if (total === null) {
-    m.style.cssText = '';
-    m.textContent = '禅道: 待登录（面板⚙连接）';
-    void host.setBadge(null).catch(() => undefined);
-    return;
-  }
-  m.style.cssText = total > 0
-    ? 'background:#7f1d1d55;border:1px solid #f8717166;border-radius:8px;padding:0 6px;'
-    : '';
-  m.innerHTML = '';
-  const left = document.createElement('span');
-  left.className = 'l';
-  const t = document.createElement('span');
-  t.textContent = '禅道: 🐞 ';
-  left.appendChild(t);
-  const n = document.createElement('b');
-  n.textContent = String(total);
-  if (total > 0) {
-    n.style.color = '#f87171';
-    const pill = document.createElement('span');
-    pill.textContent = ' 待办';
-    pill.style.cssText = 'background:#7f1d1d55;border:1px solid #f87171;border-radius:8px;padding:0 6px;font-weight:700;color:#f87171';
-    left.append(t, n, document.createTextNode(' '), pill);
-  } else {
-    left.append(t, n);
-  }
-  m.appendChild(left);
-  if (lastTime) {
-    const ts = document.createElement('span');
-    ts.className = 'r';
-    ts.textContent = lastTime;
-    ts.title = '最后刷新时间';
-    m.appendChild(ts);
-  }
-  void host.setBadge(total > 0 ? total : null).catch(() => undefined);
-};
-
+let total: number | null = null;
+let busy = false;
+let headerControls = false;
 let lastTime = '';
+
 const stamp = (): string => {
   const d = new Date();
   const p = (n: number): string => String(n).padStart(2, '0');
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 };
 
+// 标题栏：待办数（只读按钮）+ 刷新；老宿主退回区内刷新按钮
+const publishControls = async (): Promise<void> => {
+  const controls: { kind: 'button'; id: string; label: string; disabled?: boolean }[] = [];
+  if (total !== null) controls.push({ kind: 'button', id: 'count', label: `🐞 ${total} 待办` });
+  controls.push({ kind: 'button', id: 'refresh', label: busy ? '↻…' : '↻', disabled: busy });
+  try {
+    await host.setStatusControls(controls);
+    headerControls = true;
+    btnR.hidden = true;
+  } catch {
+    headerControls = false;
+    btnR.hidden = false;
+    btnR.disabled = busy;
+    btnR.textContent = busy ? '↻…' : '↻';
+  }
+};
+
+const fit = (): void => {
+  const h = Math.ceil(root.getBoundingClientRect().height);
+  void host.setHeight(h).catch(() => undefined);
+};
+
+const paint = (n: number | null): void => {
+  total = n;
+  if (n === null) {
+    m.textContent = '待登录（面板⚙连接）';
+  } else {
+    m.textContent = lastTime ? `上次刷新 ${lastTime}` : '未刷新';
+    m.style.color = n > 0 ? '#f87171' : '';
+    m.style.fontWeight = n > 0 ? '700' : '';
+  }
+  void publishControls();
+  void host.setBadge(n !== null && n > 0 ? n : null).catch(() => undefined);
+  fit();
+};
+
 const poll = async (): Promise<void> => {
-  if (document.hidden) return;
-  btnR.disabled = true;
-  btnR.textContent = '↻…';
+  if (document.hidden || busy) return;
+  busy = true;
+  await publishControls();
   try {
     let r = await host.serviceRequest({ method: 'GET', path: '/count?days=7' });
     let j = JSON.parse(r.body) as CountAnswer;
@@ -95,25 +110,23 @@ const poll = async (): Promise<void> => {
     }
     if (!j.ok) {
       if (j.error === 'need-config') paint(null);
-      else m.textContent = '禅道: 不可用';
+      else { m.textContent = '禅道不可用'; void publishControls(); }
       return;
     }
     lastTime = stamp();
     paint(j.total);
-    btnR.title = `手动刷新（上次 ${lastTime}）`;
-    const h = Math.ceil(root.getBoundingClientRect().height);
-    void host.setHeight(h).catch(() => undefined);
   } catch {
-    m.textContent = '禅道: 未启用本地服务';
+    m.textContent = '未启用本地服务';
+    void publishControls();
   } finally {
-    btnR.disabled = false;
-    btnR.textContent = '↻ 刷新';
+    busy = false;
+    await publishControls();
   }
 };
 
 const setAuto = (on: boolean): void => {
   auto = on;
-  btnA.textContent = on ? '⏱ 开' : '⏱ 关';
+  btnA.textContent = on ? '定时刷新:开' : '定时刷新:关';
   btnA.classList.toggle('on', on);
   if (timer) {
     clearInterval(timer);
@@ -137,6 +150,9 @@ btnA.onclick = (e) => {
 let booted = false;
 host.onReady((ctx) => {
   applyHostReady(ctx, document.documentElement);
+  // 新宿主把待办数与刷新放到分区标题栏；老宿主保留区内刷新按钮
+  if (ctx.features?.statusControls !== true) btnR.hidden = false;
+  else void publishControls();
   void (async () => {
     try {
       const v = await host.storage.get('ztb-autoref', { scope: 'device' });

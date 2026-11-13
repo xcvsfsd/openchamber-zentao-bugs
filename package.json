@@ -1,6 +1,6 @@
 {
   "name": "openchamber-zentao-bugs",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "禅道指派Bug面板：前10列表、提取发会话、快速指派、浏览器打开",
   "private": true,
   "type": "module",
